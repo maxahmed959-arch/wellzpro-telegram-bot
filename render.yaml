@@ -1,0 +1,18 @@
+# نشر على Render.com — Background Worker (مجاني)
+# https://render.com/docs/background-workers
+services:
+  - type: worker
+    name: wellzpro-telegram-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_PIN
+        value: WellzPro2026
+      - key: TELEGRAM_BANK_ACCOUNT
+        value: "0545155289"
+      - key: TELEGRAM_ADMIN_IDS
+        value: ""
