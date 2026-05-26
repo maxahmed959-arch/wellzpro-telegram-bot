@@ -35,4 +35,8 @@ return [
     ],
 
     'how_to_run_button' => '📖 طريقة التشغيل',
+
+    /** زر إرسال APK — ضع رابط مباشر (GitHub Releases أو ملف على السحابة) */
+    'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
+    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: '',
 ];

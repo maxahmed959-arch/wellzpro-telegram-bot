@@ -174,6 +174,12 @@ final class WellzTelegramBot
             return true;
         }
 
+        if ($text === $this->appDownloadButton() || str_contains($text, 'تحميل التطبيق') || str_contains($text, 'تجميل التطبيق')) {
+            $this->sendAppDownload($chatId);
+
+            return true;
+        }
+
         $infoKey = $this->areaInfoKeyFromButton($text);
         if ($infoKey !== null) {
             $this->sendAreaCodesInfo($chatId, $infoKey);
@@ -232,7 +238,9 @@ final class WellzTelegramBot
         if ($this->planKeyFromButtonText($text) !== null) {
             return false;
         }
-        if ($this->areaInfoKeyFromButton($text) !== null || $text === $this->howToRunButton()) {
+        if ($this->areaInfoKeyFromButton($text) !== null
+            || $text === $this->howToRunButton()
+            || $text === $this->appDownloadButton()) {
             return false;
         }
         if ($text === self::BTN_CANCEL) {
@@ -659,7 +667,7 @@ final class WellzTelegramBot
             '🥋 <b>WellzPro</b>',
             '',
             'اضغط <b>▶️ بدء</b> أو اختر مدة الاشتراك:',
-            '💊 🛒 📖 — الأزرار أسفل: أكواد المناطق + طريقة التشغيل',
+            '💊 🛒 📖 📲 — أكواد المناطق + طريقة التشغيل + تحميل التطبيق',
         ];
         foreach ($this->config['plans'] as $key => $plan) {
             $lines[] = $this->planWelcomeLine($key, (int) $plan['price']);
@@ -696,6 +704,7 @@ final class WellzTelegramBot
             ['text' => $groceryBtn],
         ];
         $rows[] = [['text' => $this->howToRunButton()]];
+        $rows[] = [['text' => $this->appDownloadButton()]];
         $rows[] = [['text' => self::BTN_CANCEL]];
         return [
             'keyboard' => $rows,
@@ -779,6 +788,57 @@ final class WellzTelegramBot
     private function howToRunButton(): string
     {
         return (string) ($this->config['how_to_run_button'] ?? '📖 طريقة التشغيل');
+    }
+
+    private function appDownloadButton(): string
+    {
+        return (string) ($this->config['app_download_button'] ?? '📲 تحميل التطبيق');
+    }
+
+    private function appDownloadUrl(): string
+    {
+        return trim((string) ($this->config['app_download_url'] ?? ''));
+    }
+
+    private function sendAppDownload(int $chatId): void
+    {
+        $url = $this->appDownloadUrl();
+        if ($url === '') {
+            $this->send(
+                $chatId,
+                "❌ رابط التطبيق غير مضبوط بعد.\n\n"
+                .'الإدارة: أضف <code>APP_DOWNLOAD_URL</code> في Render Environment '
+                .'(رابط APK مباشر — يفضّل arm64-v8a).'
+            );
+
+            return;
+        }
+
+        $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
+        $payload = [
+            'chat_id' => $chatId,
+            'document' => $url,
+            'caption' => "📲 <b>WellzPro</b>\n\nثبّت التطبيق (Android) ثم افتحه واضغط ▶️ بدء في بوت الاشتراك.",
+            'parse_mode' => 'HTML',
+            'reply_markup' => $markup,
+        ];
+        $json = $this->apiRequest('sendDocument', $payload, true, 180);
+        if (is_array($json)) {
+            return;
+        }
+
+        $inline = [
+            'inline_keyboard' => [
+                [['text' => '⬇️ تحميل WellzPro (APK)', 'url' => $url]],
+            ],
+        ];
+        $this->send(
+            $chatId,
+            "📲 <b>تحميل WellzPro</b>\n\nاضغط الزر أدناه لفتح رابط التحميل:\n"
+            ."<a href=\"{$url}\">رابط APK</a>\n\n"
+            .'بعد التثبيت: افتح التطبيق → الصق الجلسة → استهداف المنطقة.',
+            $inline
+        );
     }
 
     private function sendHowToRunGuide(int $chatId): void
@@ -882,17 +942,18 @@ final class WellzTelegramBot
         file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
     }
 
-    private function apiRequest(string $method, array $params, bool $isPost = false): ?array
+    private function apiRequest(string $method, array $params, bool $isPost = false, int $timeoutSec = 0): ?array
     {
         $url = 'https://api.telegram.org/bot'.$this->token.'/'.$method;
         if (! $isPost) {
             $url .= '?'.http_build_query($params);
         }
+        $timeout = $timeoutSec > 0 ? $timeoutSec : ($isPost ? 20 : 35);
         $ch = curl_init($url);
         $opts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => $isPost ? 20 : 35,
+            CURLOPT_TIMEOUT => $timeout,
             CURLOPT_SSL_VERIFYPEER => true,
         ];
         if ($isPost) {
