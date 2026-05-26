@@ -693,8 +693,6 @@ final class WellzTelegramBot
         $rows[] = [
             ['text' => $this->planButton('month', (int) ($plans['month']['price'] ?? 25))],
             ['text' => $this->planButton('two_months', (int) ($plans['two_months']['price'] ?? 50))],
-        ];
-        $rows[] = [
             ['text' => $this->planButton('quarter', (int) ($plans['quarter']['price'] ?? 75))],
         ];
         $pharmacyBtn = (string) ($this->config['area_codes']['pharmacy']['button'] ?? '💊 أكواد الصيدلية');
@@ -703,8 +701,10 @@ final class WellzTelegramBot
             ['text' => $pharmacyBtn],
             ['text' => $groceryBtn],
         ];
-        $rows[] = [['text' => $this->howToRunButton()]];
-        $rows[] = [['text' => $this->appDownloadButton()]];
+        $rows[] = [
+            ['text' => $this->howToRunButton()],
+            ['text' => $this->appDownloadButton()],
+        ];
         $rows[] = [['text' => self::BTN_CANCEL]];
         return [
             'keyboard' => $rows,
