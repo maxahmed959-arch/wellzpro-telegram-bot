@@ -2,7 +2,7 @@
 
 /**
  * WellzPro Telegram Bot — مستقل.
- * العميل: خطط + تسجيل فقط (بدون رقم بنك أو رقم أدمن).
+ * العميل: خطط + إقامة + كلمة سر + تحويل urpay + إيصال.
  * الأدمن: يستلم الطلب في محادثة البوت ويرد بـ Reply على رسالة الطلب.
  */
 
@@ -22,6 +22,8 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
+    private const BOT_BUILD = '2026-05-26-guide';
+
     public function __construct(array $config)
     {
         $this->config = $config;
@@ -36,6 +38,17 @@ final class WellzTelegramBot
         $this->mergeSavedAdmins();
     }
 
+    /** معالجة تحديث واحد (ويب هوك على السحابة). */
+    public function processUpdate(array $update): void
+    {
+        $this->handleUpdate($update);
+    }
+
+    public function setupOnce(): void
+    {
+        $this->setupBotMenu();
+    }
+
     public function run(): void
     {
         if ($this->token === '') {
@@ -43,7 +56,9 @@ final class WellzTelegramBot
             exit(1);
         }
 
-        echo "WellzPro Bot — العميل: خطط+تسجيل | الأدمن: رد بـ Reply\n";
+        $this->apiPost('deleteWebhook', ['drop_pending_updates' => 'false']);
+
+        echo "WellzPro Bot — خطط + urpay + إيصال | build ".self::BOT_BUILD."\n";
         $admins = $this->config['admin_ids'] ?? [];
         if ($admins === []) {
             echo "⚠️  لا يوجد أدمن — أرسل للبوت: /admin ".($this->config['admin_pin'] ?? '')."\n";
@@ -115,6 +130,11 @@ final class WellzTelegramBot
             return;
         }
 
+        if ($this->hasPhotoOrDocument($message) && ! $this->isAdmin($fromId)) {
+            $this->onTransferProof($chatId, $from, $message);
+            return;
+        }
+
         if ($text !== '') {
             $this->onText($chatId, $from, $text);
         }
@@ -142,12 +162,13 @@ final class WellzTelegramBot
         }
 
         if ($cmd === '/cancel' || $cmd === '/الغاء') {
+            $this->cancelPendingOrder($chatId);
             $this->clearSession($chatId);
             $this->send($chatId, 'تم الإلغاء. اضغط ▶️ بدء.');
             return true;
         }
 
-        if (in_array($cmd, ['/start', '/buy', '/plans'], true) || str_starts_with($cmd, '/start')) {
+        if (in_array($cmd, ['/start', '/buy', '/plans', '/refresh', '/تحديث'], true) || str_starts_with($cmd, '/start')) {
             $this->clearSession($chatId);
             $this->sendPlansMenu($chatId);
             return true;
@@ -179,9 +200,31 @@ final class WellzTelegramBot
         }
 
         if ($text === self::BTN_CANCEL) {
+            $this->cancelPendingOrder($chatId);
             $this->clearSession($chatId);
             $this->send($chatId, 'تم الإلغاء. اضغط ▶️ بدء.');
             return;
+        }
+
+        if ($text === $this->howToRunButton()) {
+            $this->sendHowToRunGuide($chatId);
+            return;
+        }
+
+        $infoKey = $this->areaInfoKeyFromButton($text);
+        if ($infoKey !== null) {
+            $this->sendAreaCodesInfo($chatId, $infoKey);
+            return;
+        }
+
+        $session = $this->loadSession($chatId);
+        if ($session !== null) {
+            $state = $session['state'] ?? '';
+
+            if ($state === 'awaiting_transfer') {
+                $this->send($chatId, '📸 أرسل <b>صورة إشعار التحويل</b> هنا.\n(أو اضغط ❌ إلغاء)');
+                return;
+            }
         }
 
         $planKey = $this->planKeyFromButtonText($text);
@@ -191,7 +234,6 @@ final class WellzTelegramBot
             return;
         }
 
-        $session = $this->loadSession($chatId);
         if ($session === null) {
             return;
         }
@@ -216,11 +258,11 @@ final class WellzTelegramBot
                 return;
             }
             $session['password'] = $text;
-            $this->completeRegistration($chatId, $from, $session);
+            $this->submitOrderAndShowBank($chatId, $from, $session);
         }
     }
 
-    private function completeRegistration(int $chatId, array $from, array $session): void
+    private function submitOrderAndShowBank(int $chatId, array $from, array $session): void
     {
         $orderId = 'ord_'.bin2hex(random_bytes(4));
         $order = [
@@ -233,7 +275,7 @@ final class WellzTelegramBot
             'price' => $session['price'],
             'iqama_id' => $session['iqama_id'],
             'password' => $session['password'],
-            'status' => 'awaiting_admin',
+            'status' => 'awaiting_transfer',
             'created_at' => date('c'),
         ];
         file_put_contents(
@@ -241,22 +283,79 @@ final class WellzTelegramBot
             json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         );
 
+        $this->saveSession($chatId, [
+            'state' => 'awaiting_transfer',
+            'order_id' => $orderId,
+        ]);
+
+        $bank = (string) ($this->config['bank_account'] ?? '');
+        $bankName = (string) ($this->config['bank_name'] ?? 'urpay');
+        $holder = trim((string) ($this->config['bank_holder'] ?? ''));
+        $holderLine = $holder !== '' ? "\nاسم المستفيد: <b>{$holder}</b>" : '';
+
+        $this->send(
+            $chatId,
+            "📋 <b>ملخص الطلب</b> — <code>{$orderId}</code>\n\n"
+            .'📦 الخطة: <b>'.($session['plan_label'] ?? '')."</b>\n"
+            .'💰 المبلغ: <b>'.($session['price'] ?? 0)." ريال</b>\n"
+            .'🪪 الإقامة: <code>'.($session['iqama_id'] ?? '')."</code>\n"
+            .'🔐 كلمة السر: <code>'.($session['password'] ?? '')."</code>\n\n"
+            ."🏦 <b>التحويل البنكي</b>\n"
+            ."<b>{$bankName}</b> = <code>{$bank}</code>{$holderLine}\n\n"
+            ."📸 بعد التحويل، <b>أرسل صورة إشعار التحويل</b> هنا.\n"
+            .'(أو ❌ إلغاء)'
+        );
+    }
+
+    private function onTransferProof(int $chatId, array $from, array $message): void
+    {
+        $session = $this->loadSession($chatId);
+        $orderId = is_array($session) ? (string) ($session['order_id'] ?? '') : '';
+
+        if (($session['state'] ?? '') !== 'awaiting_transfer' || $orderId === '') {
+            $this->send($chatId, 'أرسل /start لبدء طلب اشتراك أولاً.');
+            return;
+        }
+
+        $fileId = $this->extractProofFileId($message);
+        if ($fileId === null) {
+            $this->send($chatId, '❌ لم نتمكن من قراءة الملف. أرسل <b>صورة</b> إشعار التحويل.');
+            return;
+        }
+
+        $orderPath = $this->dataDir.'/orders/'.$orderId.'.json';
+        if (! is_file($orderPath)) {
+            $this->send($chatId, '❌ تعذّر حفظ الطلب. أرسل /start للبدء من جديد.');
+            $this->clearSession($chatId);
+            return;
+        }
+
+        $order = json_decode(file_get_contents($orderPath), true);
+        if (! is_array($order)) {
+            $this->send($chatId, '❌ تعذّر حفظ الطلب. أرسل /start للبدء من جديد.');
+            $this->clearSession($chatId);
+            return;
+        }
+
+        $order['status'] = 'awaiting_admin';
+        $order['proof_file_id'] = $fileId;
+        $order['proof_at'] = date('c');
+        file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
         $this->clearSession($chatId);
 
         $this->send(
             $chatId,
-            "✅ <b>تم استلام طلبك</b>\n\n"
-            .'📦 <b>'.($session['plan_label'] ?? '')."</b>\n"
-            .'💰 <b>'.($session['price'] ?? 0)." ريال</b>\n\n"
-            ."⏳ <b>انتظر الرد في هذه المحادثة</b>\n"
-            ."سيصلك رمز التفعيل وبيانات الجلسة من الإدارة قريباً.\n\n"
-            .'<i>لا حاجة لإرسال رقم تحويل هنا.</i>'
+            "✅ <b>تم استلام إشعار التحويل</b>\n\n"
+            ."طلبك <code>{$orderId}</code> قيد المراجعة.\n"
+            ."سيصلك <b>رمز التفعيل</b> وبيانات الجلسة بعد التأكيد.\n\n"
+            .'⏳ <b>انتظر الرد من الإدارة في هذه المحادثة.</b>'
         );
 
-        $this->notifyAdmins($order);
+        $this->notifyAdmins($order, $message);
     }
 
-    private function notifyAdmins(array $order): void
+    private function notifyAdmins(array $order, array $customerMessage): void
     {
         $admins = $this->config['admin_ids'] ?? [];
         if ($admins === []) {
@@ -264,32 +363,59 @@ final class WellzTelegramBot
             return;
         }
 
-        $bank = $this->config['bank_account'];
+        $bank = (string) ($this->config['bank_account'] ?? '');
+        $bankName = (string) ($this->config['bank_name'] ?? 'urpay');
         $name = trim((string) ($order['first_name'] ?? ''));
         $nameLine = $name !== '' ? $name : 'عميل';
+        $fromChatId = (int) ($customerMessage['chat']['id'] ?? 0);
+        $proofMsgId = (int) ($customerMessage['message_id'] ?? 0);
 
         $text = "🆕 <b>طلب جديد</b> <code>{$order['id']}</code>\n\n"
             ."👤 {$nameLine}\n"
             .'📦 '.($order['plan_label'] ?? '')."\n"
             .'💰 <b>'.($order['price'] ?? 0)." ر.س</b>\n"
             .'🪪 <code>'.($order['iqama_id'] ?? '')."</code>\n"
-            .'🔐 <code>'.($order['password'] ?? '')."</code>\n\n"
-            ."🏦 للتحويل (للأدمن فقط): <code>{$bank}</code>\n\n"
+            .'🔐 <code>'.($order['password'] ?? '')."</code>\n"
+            ."🏦 {$bankName}: <code>{$bank}</code>\n\n"
+            ."📸 إشعار التحويل مرفق أعلاه.\n\n"
             ."⬇️ <b>للرد على العميل:</b>\n"
             ."اضغط <b>رد Reply</b> على هذه الرسالة\n"
-            ."وأرسل: رمز التفعيل + JSON الجلسة\n"
-            ."(يصل للعميل عبر البوت — بدون ظهور رقمك)";
+            ."وأرسل: رمز التفعيل + JSON الجلسة";
 
         foreach ($admins as $adminId) {
             $adminChat = (int) $adminId;
             if ($adminChat === 0) {
                 continue;
             }
+            if ($fromChatId > 0 && $proofMsgId > 0) {
+                $this->apiPost('forwardMessage', [
+                    'chat_id' => $adminChat,
+                    'from_chat_id' => $fromChatId,
+                    'message_id' => $proofMsgId,
+                ]);
+            }
             $msgId = $this->sendAndGetMessageId($adminChat, $text, null, false);
             if ($msgId !== null) {
                 $this->saveNotifyMap($adminChat, $msgId, (int) $order['chat_id'], (string) $order['id']);
             }
         }
+    }
+
+    private function hasPhotoOrDocument(array $message): bool
+    {
+        return isset($message['photo']) || isset($message['document']);
+    }
+
+    private function extractProofFileId(array $message): ?string
+    {
+        if (isset($message['photo']) && is_array($message['photo'])) {
+            $largest = end($message['photo']);
+            return is_array($largest) ? ($largest['file_id'] ?? null) : null;
+        }
+        if (isset($message['document']['file_id'])) {
+            return $message['document']['file_id'];
+        }
+        return null;
     }
 
     private function onAdminReply(int $adminChatId, array $message): void
@@ -458,12 +584,28 @@ final class WellzTelegramBot
 
     private function welcomeText(): string
     {
-        return "🥋 <b>WellzPro</b>\n\n"
-            ."اختر مدة الاشتراك من الأزرار:\n"
-            ."📦 شهر — 30 ر.س\n"
-            ."📦 شهرين — 60 ر.س\n"
-            ."📦 3 أشهر — 90 ر.س\n"
-            ."♾ مدى الحياة — 299 ر.س";
+        $lines = [
+            '🥋 <b>WellzPro</b>',
+            '',
+            'اضغط <b>▶️ بدء</b> أو اختر مدة الاشتراك:',
+            '💊 🛒 📖 — الأزرار أسفل: أكواد المناطق + طريقة التشغيل',
+        ];
+        foreach ($this->config['plans'] as $key => $plan) {
+            $lines[] = $this->planWelcomeLine($key, (int) $plan['price']);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function planWelcomeLine(string $key, int $price): string
+    {
+        return match ($key) {
+            'month' => "📦 شهر — {$price} ر.س",
+            'two_months' => "📦 شهرين — {$price} ر.س",
+            'quarter' => "📦 3 أشهر — {$price} ر.س",
+            'lifetime' => "♾ مدى الحياة — {$price} ر.س",
+            default => "📦 {$key} — {$price} ر.س",
+        };
     }
 
     private function persistentKeyboard(): array
@@ -480,6 +622,13 @@ final class WellzTelegramBot
         if ($row !== []) {
             $rows[] = $row;
         }
+        $pharmacyBtn = (string) ($this->config['area_codes']['pharmacy']['button'] ?? '💊 أكواد الصيدلية');
+        $groceryBtn = (string) ($this->config['area_codes']['grocery']['button'] ?? '🛒 أكواد البقالة');
+        $rows[] = [
+            ['text' => $pharmacyBtn],
+            ['text' => $groceryBtn],
+        ];
+        $rows[] = [['text' => $this->howToRunButton()]];
         $rows[] = [['text' => self::BTN_CANCEL]];
         return [
             'keyboard' => $rows,
@@ -513,6 +662,73 @@ final class WellzTelegramBot
             'lifetime' => "♾ مدى الحياة — {$price} ر.س",
             default => "{$key} — {$price} ر.س",
         };
+    }
+
+    private function areaInfoKeyFromButton(string $text): ?string
+    {
+        foreach ($this->config['area_codes'] ?? [] as $key => $info) {
+            if ($text === (string) ($info['button'] ?? '')) {
+                return $key;
+            }
+        }
+        return null;
+    }
+
+    private function sendAreaCodesInfo(int $chatId, string $key): void
+    {
+        $info = $this->config['area_codes'][$key] ?? null;
+        if (! is_array($info)) {
+            return;
+        }
+
+        $label = (string) ($info['label'] ?? $key);
+        $areaId = (int) ($info['area_id'] ?? 0);
+        $code = (string) ($info['code'] ?? '');
+        $areaLine = $areaId > 0 ? "\n🆔 رقم المنطقة: <b>{$areaId}</b>" : '';
+
+        $intro = $key === 'pharmacy'
+            ? 'كود استهداف <b>الصيدلية</b> في التطبيق (بعد تفعيل الاشتراك):'
+            : 'كود استهداف <b>البقالة</b> في التطبيق (بعد تفعيل الاشتراك):';
+
+        $this->send(
+            $chatId,
+            "📍 <b>{$label}</b>\n\n"
+            .$intro."\n\n"
+            .'<code>'.htmlspecialchars($code, ENT_QUOTES, 'UTF-8')."</code>{$areaLine}\n\n"
+            ."ℹ️ الصقه في بطاقة <b>TARGETING</b> بالشاشة الرئيسية ثم احفظ.\n"
+            .'📖 للخطوات الكاملة: اضغط <b>طريقة التشغيل</b>.'
+        );
+    }
+
+    private function howToRunButton(): string
+    {
+        return (string) ($this->config['how_to_run_button'] ?? '📖 طريقة التشغيل');
+    }
+
+    private function sendHowToRunGuide(int $chatId): void
+    {
+        $this->send(
+            $chatId,
+            "📖 <b>طريقة تشغيل البوت في WellzPro</b>\n\n"
+            ."<b>1️⃣ لصق الجلسة</b>\n"
+            ."• أيقونة <b>الحساب 👤</b> أعلى الشاشة الرئيسية\n"
+            ."• سجّل دخول (إقامة + كلمة سر) أو «لصق JSON» من رسالة الإدارة\n\n"
+            ."<b>2️⃣ لصق كود المنطقة</b>\n"
+            ."• الشاشة الرئيسية → بطاقة <b>TARGETING</b>\n"
+            ."• الصق الكود (مثل <code>YAN-KHU</code> أو <code>YAN-SIH-KHU</code>)\n"
+            ."• اضغط زر <b>حفظ</b> بجانب الحقل\n\n"
+            ."<b>3️⃣ تفعيل الزمن الاحتياطي</b>\n"
+            ."• بطاقة <b>الدوام الثاني (احتياطي)</b>\n"
+            ."• فعّل الدوام الثاني إن أردت وردية احتياطية\n\n"
+            ."<b>4️⃣ ضبط Fast Mode و Dual Tap</b>\n"
+            ."• بطاقة <b>PERFORMANCE</b> في الشاشة الرئيسية\n"
+            ."• فعّل <b>Fast Mode</b> (استطلاع أسرع)\n"
+            ."• فعّل <b>Dual Tap</b> (حجز مزدوج) إن رغبت\n\n"
+            ."<b>5️⃣ تشغيل البوت ومراقبة السجلات</b>\n"
+            ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
+            ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
+            .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة'
+        );
     }
 
     private function send(int $chatId, string $text, ?array $replyMarkup = null, bool $withKeyboard = true): void
@@ -560,6 +776,29 @@ final class WellzTelegramBot
         }
     }
 
+    private function cancelPendingOrder(int $chatId): void
+    {
+        $session = $this->loadSession($chatId);
+        if (! is_array($session)) {
+            return;
+        }
+        $orderId = (string) ($session['order_id'] ?? '');
+        if ($orderId === '') {
+            return;
+        }
+        $orderPath = $this->dataDir.'/orders/'.$orderId.'.json';
+        if (! is_file($orderPath)) {
+            return;
+        }
+        $order = json_decode(file_get_contents($orderPath), true);
+        if (! is_array($order) || ! in_array($order['status'] ?? '', ['awaiting_transfer', 'awaiting_admin'], true)) {
+            return;
+        }
+        $order['status'] = 'cancelled';
+        $order['cancelled_at'] = date('c');
+        file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+    }
+
     private function apiRequest(string $method, array $params, bool $isPost = false): ?array
     {
         $url = 'https://api.telegram.org/bot'.$this->token.'/'.$method;
@@ -599,4 +838,6 @@ final class WellzTelegramBot
     }
 }
 
-(new WellzTelegramBot($config))->run();
+if (PHP_SAPI === 'cli') {
+    (new WellzTelegramBot($config))->run();
+}
