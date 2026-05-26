@@ -9,12 +9,30 @@ return [
     /** لتسجيل نفسك كأدمن: أرسل للبوت /admin الرمز */
     'admin_pin' => getenv('TELEGRAM_ADMIN_PIN') ?: 'WellzPro2026',
     'bank_account' => getenv('TELEGRAM_BANK_ACCOUNT') ?: '0545155289',
+    'bank_name' => getenv('TELEGRAM_BANK_NAME') ?: 'urpay',
     'bank_holder' => getenv('TELEGRAM_BANK_HOLDER') ?: '',
 
     'plans' => [
-        'month' => ['label' => 'شهر (30 يوم)', 'price' => 30],
-        'two_months' => ['label' => 'شهرين (60 يوم)', 'price' => 60],
-        'quarter' => ['label' => '3 أشهر (90 يوم)', 'price' => 90],
-        'lifetime' => ['label' => 'مدى الحياة', 'price' => 299],
+        'month' => ['label' => 'شهر (30 يوم)', 'price' => 25],
+        'two_months' => ['label' => 'شهرين (60 يوم)', 'price' => 50],
+        'quarter' => ['label' => '3 أشهر (90 يوم)', 'price' => 75],
     ],
+
+    /** أزرار معلومات — أكواد المناطق في تطبيق WellzPro */
+    'area_codes' => [
+        'pharmacy' => [
+            'button' => '💊 أكواد الصيدلية',
+            'code' => 'YAN-SIH-KHU',
+            'area_id' => 543,
+            'label' => 'صيدلية ينبع',
+        ],
+        'grocery' => [
+            'button' => '🛒 أكواد البقالة',
+            'code' => 'YAN-KHU',
+            'area_id' => 394,
+            'label' => 'بقالة الصاعدة (ينبع)',
+        ],
+    ],
+
+    'how_to_run_button' => '📖 طريقة التشغيل',
 ];

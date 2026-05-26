@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-05-26-guide';
+    private const BOT_BUILD = '2026-05-26-plans-25-75';
 
     public function __construct(array $config)
     {
@@ -122,6 +122,10 @@ final class WellzTelegramBot
             }
         }
 
+        if ($text !== '' && $this->handleMenuButton($chatId, $from, $text)) {
+            return;
+        }
+
         if ($this->isAdmin($fromId) && isset($message['reply_to_message'])) {
             $this->onAdminReply($chatId, $message);
             return;
@@ -144,6 +148,48 @@ final class WellzTelegramBot
         if ($text !== '') {
             $this->onText($chatId, $from, $text);
         }
+    }
+
+    /** أزرار القائمة — تعمل للجميع (عميل وأدمن) قبل أي حجز. */
+    private function handleMenuButton(int $chatId, array $from, string $text): bool
+    {
+        if ($this->isStartButton($text) || in_array($text, ['شراء', 'اشتراك', 'خطط'], true)) {
+            $this->clearSession($chatId);
+            $this->sendPlansMenu($chatId);
+
+            return true;
+        }
+
+        if ($text === self::BTN_CANCEL) {
+            $this->cancelPendingOrder($chatId);
+            $this->clearSession($chatId);
+            $this->send($chatId, 'تم الإلغاء. اضغط ▶️ بدء.');
+
+            return true;
+        }
+
+        if ($text === $this->howToRunButton() || str_contains($text, 'طريقة التشغيل')) {
+            $this->sendHowToRunGuide($chatId);
+
+            return true;
+        }
+
+        $infoKey = $this->areaInfoKeyFromButton($text);
+        if ($infoKey !== null) {
+            $this->sendAreaCodesInfo($chatId, $infoKey);
+
+            return true;
+        }
+
+        $planKey = $this->planKeyFromButtonText($text);
+        if ($planKey !== null) {
+            $this->clearSession($chatId);
+            $this->beginPlan($chatId, $from, $planKey);
+
+            return true;
+        }
+
+        return false;
     }
 
     private function commandName(string $text): string
@@ -249,30 +295,6 @@ final class WellzTelegramBot
 
     private function onText(int $chatId, array $from, string $text): void
     {
-        if ($this->isStartButton($text) || in_array($text, ['شراء', 'اشتراك', 'خطط'], true)) {
-            $this->clearSession($chatId);
-            $this->sendPlansMenu($chatId);
-            return;
-        }
-
-        if ($text === self::BTN_CANCEL) {
-            $this->cancelPendingOrder($chatId);
-            $this->clearSession($chatId);
-            $this->send($chatId, 'تم الإلغاء. اضغط ▶️ بدء.');
-            return;
-        }
-
-        if ($text === $this->howToRunButton()) {
-            $this->sendHowToRunGuide($chatId);
-            return;
-        }
-
-        $infoKey = $this->areaInfoKeyFromButton($text);
-        if ($infoKey !== null) {
-            $this->sendAreaCodesInfo($chatId, $infoKey);
-            return;
-        }
-
         $session = $this->loadSession($chatId);
         if ($session !== null) {
             $state = $session['state'] ?? '';
@@ -281,13 +303,6 @@ final class WellzTelegramBot
                 $this->send($chatId, '📸 أرسل <b>صورة إشعار التحويل</b> هنا.\n(أو اضغط ❌ إلغاء)');
                 return;
             }
-        }
-
-        $planKey = $this->planKeyFromButtonText($text);
-        if ($planKey !== null) {
-            $this->clearSession($chatId);
-            $this->beginPlan($chatId, $from, $planKey);
-            return;
         }
 
         if ($session === null) {
@@ -659,25 +674,21 @@ final class WellzTelegramBot
             'month' => "📦 شهر — {$price} ر.س",
             'two_months' => "📦 شهرين — {$price} ر.س",
             'quarter' => "📦 3 أشهر — {$price} ر.س",
-            'lifetime' => "♾ مدى الحياة — {$price} ر.س",
             default => "📦 {$key} — {$price} ر.س",
         };
     }
 
     private function persistentKeyboard(): array
     {
+        $plans = $this->config['plans'] ?? [];
         $rows = [[['text' => self::BTN_START]]];
-        $row = [];
-        foreach ($this->config['plans'] as $key => $plan) {
-            $row[] = ['text' => $this->planButton($key, (int) $plan['price'])];
-            if (count($row) === 2) {
-                $rows[] = $row;
-                $row = [];
-            }
-        }
-        if ($row !== []) {
-            $rows[] = $row;
-        }
+        $rows[] = [
+            ['text' => $this->planButton('month', (int) ($plans['month']['price'] ?? 25))],
+            ['text' => $this->planButton('two_months', (int) ($plans['two_months']['price'] ?? 50))],
+        ];
+        $rows[] = [
+            ['text' => $this->planButton('quarter', (int) ($plans['quarter']['price'] ?? 75))],
+        ];
         $pharmacyBtn = (string) ($this->config['area_codes']['pharmacy']['button'] ?? '💊 أكواد الصيدلية');
         $groceryBtn = (string) ($this->config['area_codes']['grocery']['button'] ?? '🛒 أكواد البقالة');
         $rows[] = [
@@ -715,18 +726,25 @@ final class WellzTelegramBot
             'month' => "📦 شهر — {$price} ر.س",
             'two_months' => "📦 شهرين — {$price} ر.س",
             'quarter' => "📦 3 أشهر — {$price} ر.س",
-            'lifetime' => "♾ مدى الحياة — {$price} ر.س",
-            default => "{$key} — {$price} ر.س",
+            default => "📦 {$key} — {$price} ر.س",
         };
     }
 
     private function areaInfoKeyFromButton(string $text): ?string
     {
+        $t = trim($text);
         foreach ($this->config['area_codes'] ?? [] as $key => $info) {
-            if ($text === (string) ($info['button'] ?? '')) {
+            if ($t === (string) ($info['button'] ?? '')) {
                 return $key;
             }
         }
+        if (str_contains($t, 'الصيدلية')) {
+            return 'pharmacy';
+        }
+        if (str_contains($t, 'البقالة')) {
+            return 'grocery';
+        }
+
         return null;
     }
 
@@ -734,6 +752,8 @@ final class WellzTelegramBot
     {
         $info = $this->config['area_codes'][$key] ?? null;
         if (! is_array($info)) {
+            $this->send($chatId, '❌ معلومات غير متوفرة. أرسل /start');
+
             return;
         }
 
