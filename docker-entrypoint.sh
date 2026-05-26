@@ -2,11 +2,22 @@
 set -e
 mkdir -p data/sessions data/orders data/admins data/notify_map
 
-if [ -n "$RENDER_EXTERNAL_URL" ] || [ -n "$BOT_PUBLIC_URL" ]; then
-  echo "[entrypoint] Cloud mode — registering Telegram webhook..."
-  php scripts/set-webhook.php || echo "[entrypoint] webhook setup failed (retry from Render shell)"
-  exec php -S "0.0.0.0:${PORT:-8080}" -t public
+# Render يضبط PORT دائماً — لا نعتمد فقط على RENDER_EXTERNAL_URL (قد يتأخر)
+use_web=0
+if [ -n "${PORT}" ] || [ -n "${RENDER_EXTERNAL_URL}" ] || [ -n "${BOT_PUBLIC_URL}" ] || [ -n "${RENDER_SERVICE_ID}" ]; then
+  use_web=1
 fi
 
-echo "[entrypoint] Worker mode — long polling (delete webhook)..."
+if [ "$use_web" = "1" ]; then
+  listen_port="${PORT:-8080}"
+  echo "[entrypoint] Cloud/web mode — http://0.0.0.0:${listen_port}/"
+  # الويب هوك في الخلفية حتى يمر health check فوراً (لا يعلق الإقلاع)
+  (
+    sleep 1
+    php scripts/set-webhook.php 2>&1 || echo "[entrypoint] webhook setup failed — راجع TELEGRAM_BOT_TOKEN"
+  ) &
+  exec php -S "0.0.0.0:${listen_port}" -t public
+fi
+
+echo "[entrypoint] Worker mode — long polling (محلي فقط)"
 exec php bot.php
