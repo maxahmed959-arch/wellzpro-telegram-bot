@@ -110,6 +110,12 @@ final class WellzTelegramBot
 
         $text = trim((string) ($message['text'] ?? ''));
 
+        if ($text !== '' && $this->isStartLikeCommand($text)) {
+            $this->clearSession($chatId);
+            $this->sendPlansMenu($chatId);
+            return;
+        }
+
         if ($text !== '' && str_starts_with($text, '/')) {
             if ($this->onCommand($chatId, $fromId, $text)) {
                 return;
@@ -121,8 +127,8 @@ final class WellzTelegramBot
             return;
         }
 
-        if ($this->isAdmin($fromId) && ! $this->isCustomerInFlow($chatId)) {
-            $this->send($chatId, 'أنت مسجّل كأدمن.\nللرد على عميل: <b>Reply</b> على رسالة «طلب جديد» وأرسل الكود والـ JSON.', null, false);
+        if ($this->isAdmin($fromId) && ! $this->isCustomerInFlow($chatId) && $this->isAdminOnlyPlainText($text)) {
+            $this->send($chatId, 'أنت مسجّل كأدمن.\nللرد على عميل: <b>Reply</b> على رسالة «طلب جديد».\n\nللعملاء: /start أو ▶️ بدء', null, false);
             return;
         }
 
@@ -140,10 +146,60 @@ final class WellzTelegramBot
         }
     }
 
+    private function commandName(string $text): string
+    {
+        $parts = preg_split('/\s+/u', trim($text), 2);
+        $cmd = strtolower($parts[0] ?? '');
+        if (str_contains($cmd, '@')) {
+            $cmd = substr($cmd, 0, (int) strpos($cmd, '@'));
+        }
+
+        return $cmd;
+    }
+
+    private function commandArg(string $text): string
+    {
+        $parts = preg_split('/\s+/u', trim($text), 2);
+
+        return trim($parts[1] ?? '');
+    }
+
+    private function isStartLikeCommand(string $text): bool
+    {
+        if (! str_starts_with($text, '/')) {
+            return false;
+        }
+        $cmd = $this->commandName($text);
+
+        return $cmd === '/start' || $cmd === '/buy' || $cmd === '/plans';
+    }
+
+    /** نص عادي من الأدمن — لا يعترض أزرار العميل (بدء / خطط). */
+    private function isAdminOnlyPlainText(string $text): bool
+    {
+        if ($text === '') {
+            return false;
+        }
+        if ($this->isStartButton($text) || in_array($text, ['شراء', 'اشتراك', 'خطط'], true)) {
+            return false;
+        }
+        if ($this->planKeyFromButtonText($text) !== null) {
+            return false;
+        }
+        if ($this->areaInfoKeyFromButton($text) !== null || $text === $this->howToRunButton()) {
+            return false;
+        }
+        if ($text === self::BTN_CANCEL) {
+            return false;
+        }
+
+        return true;
+    }
+
     private function onCommand(int $chatId, int $fromId, string $text): bool
     {
-        $cmd = strtolower(strtok($text, " \n\r\t") ?: '');
-        $arg = trim(strtok(" \n\r\t") ?: '');
+        $cmd = $this->commandName($text);
+        $arg = $this->commandArg($text);
 
         if ($cmd === '/admin') {
             $pin = $arg !== '' ? $arg : trim(substr($text, strlen('/admin')));
@@ -168,7 +224,7 @@ final class WellzTelegramBot
             return true;
         }
 
-        if (in_array($cmd, ['/start', '/buy', '/plans', '/refresh', '/تحديث'], true) || str_starts_with($cmd, '/start')) {
+        if (in_array($cmd, ['/start', '/buy', '/plans', '/refresh', '/تحديث'], true)) {
             $this->clearSession($chatId);
             $this->sendPlansMenu($chatId);
             return true;
@@ -750,6 +806,13 @@ final class WellzTelegramBot
             $payload['reply_markup'] = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
         }
         $json = $this->apiRequest('sendMessage', $payload, true);
+        if (is_array($json)) {
+            return (int) ($json['result']['message_id'] ?? 0);
+        }
+
+        unset($payload['parse_mode']);
+        $json = $this->apiRequest('sendMessage', $payload, true);
+
         return is_array($json) ? (int) ($json['result']['message_id'] ?? 0) : null;
     }
 
@@ -823,7 +886,14 @@ final class WellzTelegramBot
             return null;
         }
         $json = json_decode($body, true);
-        return is_array($json) && ($json['ok'] ?? false) ? $json : null;
+        if (is_array($json) && ($json['ok'] ?? false)) {
+            return $json;
+        }
+        if (is_array($json) && ! ($json['ok'] ?? true)) {
+            echo '['.date('H:i:s')."] Telegram API {$method}: ".($json['description'] ?? 'error')."\n";
+        }
+
+        return null;
     }
 
     private function apiGet(string $method, array $params): ?array
