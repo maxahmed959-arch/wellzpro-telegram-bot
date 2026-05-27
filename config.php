@@ -34,10 +34,11 @@ return [
             'label' => 'بقالة الصاعدة (ينبع)',
         ],
         'riyadh_qur' => [
-            'button' => '🏙️ قرناطة',
+            'button' => '🏙️ قرطبة',
             'code' => 'RUH-QUR',
             'area_id' => 432,
-            'label' => 'قرناطة (RUH-QUR)',
+            'label' => 'قرطبة (RUH-QUR)',
+            'api_shift_code' => 'RUH-QUR001',
         ],
     ],
 
