@@ -695,12 +695,17 @@ final class WellzTelegramBot
             ['text' => $this->planButton('two_months', (int) ($plans['two_months']['price'] ?? 50))],
             ['text' => $this->planButton('quarter', (int) ($plans['quarter']['price'] ?? 75))],
         ];
-        $pharmacyBtn = (string) ($this->config['area_codes']['pharmacy']['button'] ?? '💊 أكواد الصيدلية');
-        $groceryBtn = (string) ($this->config['area_codes']['grocery']['button'] ?? '🛒 أكواد البقالة');
-        $rows[] = [
-            ['text' => $pharmacyBtn],
-            ['text' => $groceryBtn],
-        ];
+        $areaButtons = [];
+        foreach ($this->config['area_codes'] ?? [] as $info) {
+            $btn = trim((string) ($info['button'] ?? ''));
+            if ($btn === '') {
+                continue;
+            }
+            $areaButtons[] = ['text' => $btn];
+        }
+        if ($areaButtons !== []) {
+            $rows[] = $areaButtons;
+        }
         $rows[] = [
             ['text' => $this->howToRunButton()],
             ['text' => $this->appDownloadButton()],
@@ -753,6 +758,9 @@ final class WellzTelegramBot
         if (str_contains($t, 'البقالة')) {
             return 'grocery';
         }
+        if (str_contains($t, 'الرياض') || str_contains($t, 'قر')) {
+            return 'riyadh_qur';
+        }
 
         return null;
     }
@@ -769,17 +777,24 @@ final class WellzTelegramBot
         $label = (string) ($info['label'] ?? $key);
         $areaId = (int) ($info['area_id'] ?? 0);
         $code = (string) ($info['code'] ?? '');
+        $apiShift = trim((string) ($info['api_shift_code'] ?? ''));
+        $apiLine = $apiShift !== ''
+            ? "\n📱 كود الشفت في التطبيق: <code>".htmlspecialchars($apiShift, ENT_QUOTES, 'UTF-8').'</code>'
+            : '';
         $areaLine = $areaId > 0 ? "\n🆔 رقم المنطقة: <b>{$areaId}</b>" : '';
 
-        $intro = $key === 'pharmacy'
-            ? 'كود استهداف <b>الصيدلية</b> في التطبيق (بعد تفعيل الاشتراك):'
-            : 'كود استهداف <b>البقالة</b> في التطبيق (بعد تفعيل الاشتراك):';
+        $intro = match ($key) {
+            'pharmacy' => 'كود استهداف <b>الصيدلية</b> في التطبيق (بعد تفعيل الاشتراك):',
+            'grocery' => 'كود استهداف <b>البقالة</b> في التطبيق (بعد تفعيل الاشتراك):',
+            'riyadh_qur' => 'كود استهداف <b>الرياض — قر</b> في التطبيق (بعد تفعيل الاشتراك):',
+            default => 'كود استهداف المنطقة في التطبيق (بعد تفعيل الاشتراك):',
+        };
 
         $this->send(
             $chatId,
             "📍 <b>{$label}</b>\n\n"
             .$intro."\n\n"
-            .'<code>'.htmlspecialchars($code, ENT_QUOTES, 'UTF-8')."</code>{$areaLine}\n\n"
+            .'<code>'.htmlspecialchars($code, ENT_QUOTES, 'UTF-8')."</code>{$apiLine}{$areaLine}\n\n"
             ."ℹ️ الصقه في بطاقة <b>TARGETING</b> بالشاشة الرئيسية ثم احفظ.\n"
             .'📖 للخطوات الكاملة: اضغط <b>طريقة التشغيل</b>.'
         );
@@ -851,7 +866,7 @@ final class WellzTelegramBot
             ."• سجّل دخول (إقامة + كلمة سر) أو «لصق JSON» من رسالة الإدارة\n\n"
             ."<b>2️⃣ لصق كود المنطقة</b>\n"
             ."• الشاشة الرئيسية → بطاقة <b>TARGETING</b>\n"
-            ."• الصق الكود (مثل <code>YAN-KHU</code> أو <code>YAN-SIH-KHU</code>)\n"
+            ."• الصق الكود (مثل <code>YAN-KHU</code> أو <code>RUH-QUR</code>)\n"
             ."• اضغط زر <b>حفظ</b> بجانب الحقل\n\n"
             ."<b>3️⃣ تفعيل الزمن الاحتياطي</b>\n"
             ."• بطاقة <b>الدوام الثاني (احتياطي)</b>\n"
@@ -863,7 +878,8 @@ final class WellzTelegramBot
             ."<b>5️⃣ تشغيل البوت ومراقبة السجلات</b>\n"
             ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
             ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
-            .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة'
+            .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة | '
+            .'🏙️ <code>RUH-QUR</code> — الرياض قر (#432)'
         );
     }
 
