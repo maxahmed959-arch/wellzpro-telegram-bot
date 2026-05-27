@@ -25,12 +25,19 @@ return [
             'code' => 'YAN-SIH-KHU',
             'area_id' => 543,
             'label' => 'صيدلية ينبع',
+            'api_shift_code' => 'YAN-SIH-KHU001',
         ],
         'grocery' => [
             'button' => '🛒 أكواد البقالة',
             'code' => 'YAN-KHU',
             'area_id' => 394,
             'label' => 'بقالة الصاعدة (ينبع)',
+        ],
+        'riyadh_qur' => [
+            'button' => '🏙️ الرياض (قر)',
+            'code' => 'RUH-QUR',
+            'area_id' => 432,
+            'label' => 'الرياض — قر (RUH-QUR)',
         ],
     ],
 
