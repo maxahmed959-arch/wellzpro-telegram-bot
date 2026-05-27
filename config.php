@@ -34,10 +34,10 @@ return [
             'label' => 'بقالة الصاعدة (ينبع)',
         ],
         'riyadh_qur' => [
-            'button' => '🏙️ الرياض (قر)',
+            'button' => '🏙️ قرناطة',
             'code' => 'RUH-QUR',
             'area_id' => 432,
-            'label' => 'الرياض — قر (RUH-QUR)',
+            'label' => 'قرناطة (RUH-QUR)',
         ],
     ],
 
