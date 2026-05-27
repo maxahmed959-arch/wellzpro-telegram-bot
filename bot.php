@@ -758,7 +758,7 @@ final class WellzTelegramBot
         if (str_contains($t, 'البقالة')) {
             return 'grocery';
         }
-        if (str_contains($t, 'قرناطة') || str_contains($t, 'RUH-QUR')) {
+        if (str_contains($t, 'قرطبة') || str_contains($t, 'RUH-QUR')) {
             return 'riyadh_qur';
         }
 
@@ -786,7 +786,7 @@ final class WellzTelegramBot
         $intro = match ($key) {
             'pharmacy' => 'كود استهداف <b>الصيدلية</b> في التطبيق (بعد تفعيل الاشتراك):',
             'grocery' => 'كود استهداف <b>البقالة</b> في التطبيق (بعد تفعيل الاشتراك):',
-            'riyadh_qur' => 'كود استهداف <b>قرناطة</b> في التطبيق (بعد تفعيل الاشتراك):',
+            'riyadh_qur' => 'كود استهداف <b>قرطبة</b> في التطبيق (بعد تفعيل الاشتراك):',
             default => 'كود استهداف المنطقة في التطبيق (بعد تفعيل الاشتراك):',
         };
 
@@ -879,7 +879,7 @@ final class WellzTelegramBot
             ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
             ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
             .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة | '
-            .'🏙️ <code>RUH-QUR</code> — قرناطة (#432)'
+            .'🏙️ <code>RUH-QUR</code> — قرطبة (#432)'
         );
     }
 
