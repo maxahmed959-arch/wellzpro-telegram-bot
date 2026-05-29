@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-05-29-howto-video';
+    private const BOT_BUILD = '2026-05-29-area-codes-one-btn';
 
     public function __construct(array $config)
     {
@@ -184,6 +184,12 @@ final class WellzTelegramBot
             return true;
         }
 
+        if ($text === $this->areaCodesButton() || str_contains($text, 'أكواد المناطق')) {
+            $this->sendAllAreaCodes($chatId);
+
+            return true;
+        }
+
         if ($text === $this->howToRunButton() || str_contains($text, 'طريقة التشغيل')) {
             $this->sendHowToRunGuide($chatId);
 
@@ -192,13 +198,6 @@ final class WellzTelegramBot
 
         if ($text === $this->appDownloadButton() || str_contains($text, 'تحميل التطبيق') || str_contains($text, 'تجميل التطبيق')) {
             $this->sendAppDownload($chatId);
-
-            return true;
-        }
-
-        $infoKey = $this->areaInfoKeyFromButton($text);
-        if ($infoKey !== null) {
-            $this->sendAreaCodesInfo($chatId, $infoKey);
 
             return true;
         }
@@ -257,7 +256,8 @@ final class WellzTelegramBot
         if ($this->planKeyFromButtonText($text) !== null) {
             return false;
         }
-        if ($this->areaInfoKeyFromButton($text) !== null
+        if ($text === $this->areaCodesButton()
+            || str_contains($text, 'أكواد المناطق')
             || $text === $this->howToRunButton()
             || $text === $this->appDownloadButton()) {
             return false;
@@ -692,7 +692,7 @@ final class WellzTelegramBot
             '🥋 <b>WellzPro</b>',
             '',
             'اضغط <b>▶️ بدء</b> أو اختر مدة الاشتراك:',
-            '💊 🛒 📖 📲 — أكواد المناطق + طريقة التشغيل + تحميل التطبيق',
+            '📍 📖 📲 — أكواد المناطق + طريقة التشغيل + تحميل التطبيق',
         ];
         foreach ($this->config['plans'] as $key => $plan) {
             $lines[] = $this->planWelcomeLine($key, (int) $plan['price']);
@@ -720,17 +720,7 @@ final class WellzTelegramBot
             ['text' => $this->planButton('two_months', (int) ($plans['two_months']['price'] ?? 50))],
             ['text' => $this->planButton('quarter', (int) ($plans['quarter']['price'] ?? 75))],
         ];
-        $areaButtons = [];
-        foreach ($this->config['area_codes'] ?? [] as $info) {
-            $btn = trim((string) ($info['button'] ?? ''));
-            if ($btn === '') {
-                continue;
-            }
-            $areaButtons[] = ['text' => $btn];
-        }
-        if ($areaButtons !== []) {
-            $rows[] = $areaButtons;
-        }
+        $rows[] = [['text' => $this->areaCodesButton()]];
         $rows[] = [
             ['text' => $this->howToRunButton()],
             ['text' => $this->appDownloadButton()],
@@ -769,60 +759,52 @@ final class WellzTelegramBot
         };
     }
 
-    private function areaInfoKeyFromButton(string $text): ?string
+    private function areaCodesButton(): string
     {
-        $t = trim($text);
-        foreach ($this->config['area_codes'] ?? [] as $key => $info) {
-            if ($t === (string) ($info['button'] ?? '')) {
-                return $key;
-            }
-        }
-        if (str_contains($t, 'الصيدلية')) {
-            return 'pharmacy';
-        }
-        if (str_contains($t, 'البقالة')) {
-            return 'grocery';
-        }
-        if (str_contains($t, 'قرطبة') || str_contains($t, 'RUH-QUR')) {
-            return 'riyadh_qur';
-        }
-
-        return null;
+        return (string) ($this->config['area_codes_button'] ?? '📍 أكواد المناطق');
     }
 
-    private function sendAreaCodesInfo(int $chatId, string $key): void
+    private function sendAllAreaCodes(int $chatId): void
     {
-        $info = $this->config['area_codes'][$key] ?? null;
-        if (! is_array($info)) {
-            $this->send($chatId, '❌ معلومات غير متوفرة. أرسل /start');
+        $areas = $this->config['area_codes'] ?? [];
+        if ($areas === []) {
+            $this->send($chatId, '❌ لا توجد أكواد مناطق. تواصل مع الإدارة.');
 
             return;
         }
 
-        $label = (string) ($info['label'] ?? $key);
-        $areaId = (int) ($info['area_id'] ?? 0);
-        $code = (string) ($info['code'] ?? '');
-        $apiShift = trim((string) ($info['api_shift_code'] ?? ''));
-        $apiLine = $apiShift !== ''
-            ? "\n📱 كود الشفت في التطبيق: <code>".htmlspecialchars($apiShift, ENT_QUOTES, 'UTF-8').'</code>'
-            : '';
-        $areaLine = $areaId > 0 ? "\n🆔 رقم المنطقة: <b>{$areaId}</b>" : '';
+        $lines = [
+            '📍 <b>أكواد المناطق</b>',
+            '',
+            'الصق الكود في بطاقة <b>TARGETING</b> ثم احفظ:',
+            '',
+        ];
 
-        $intro = match ($key) {
-            'pharmacy' => 'كود استهداف <b>الصيدلية</b> في التطبيق (بعد تفعيل الاشتراك):',
-            'grocery' => 'كود استهداف <b>البقالة</b> في التطبيق (بعد تفعيل الاشتراك):',
-            'riyadh_qur' => 'كود استهداف <b>قرطبة</b> في التطبيق (بعد تفعيل الاشتراك):',
-            default => 'كود استهداف المنطقة في التطبيق (بعد تفعيل الاشتراك):',
-        };
+        foreach ($areas as $info) {
+            if (! is_array($info)) {
+                continue;
+            }
+            $label = trim((string) ($info['label'] ?? ''));
+            $code = trim((string) ($info['code'] ?? ''));
+            $areaId = (int) ($info['area_id'] ?? 0);
+            $shift = trim((string) ($info['api_shift_code'] ?? ''));
 
-        $this->send(
-            $chatId,
-            "📍 <b>{$label}</b>\n\n"
-            .$intro."\n\n"
-            .'<code>'.htmlspecialchars($code, ENT_QUOTES, 'UTF-8')."</code>{$apiLine}{$areaLine}\n\n"
-            ."ℹ️ الصقه في بطاقة <b>TARGETING</b> بالشاشة الرئيسية ثم احفظ.\n"
-            .'📖 للخطوات الكاملة: اضغط <b>طريقة التشغيل</b>.'
-        );
+            if ($code === '') {
+                continue;
+            }
+
+            $title = $label !== '' ? $label : $code;
+            $idPart = $areaId > 0 ? " · #{$areaId}" : '';
+            $shiftPart = $shift !== '' ? " · {$shift}" : '';
+
+            $lines[] = '• <b>'.htmlspecialchars($title, ENT_QUOTES, 'UTF-8').'</b>';
+            $lines[] = '<code>'.htmlspecialchars($code, ENT_QUOTES, 'UTF-8')."</code>{$idPart}{$shiftPart}";
+            $lines[] = '';
+        }
+
+        $lines[] = '📖 للخطوات الكاملة: اضغط <b>طريقة التشغيل</b>.';
+
+        $this->send($chatId, implode("\n", $lines));
     }
 
     private function howToRunButton(): string
@@ -928,7 +910,7 @@ final class WellzTelegramBot
             ."• سجّل دخول (إقامة + كلمة سر) أو «لصق JSON» من رسالة الإدارة\n\n"
             ."<b>2️⃣ لصق كود المنطقة</b>\n"
             ."• الشاشة الرئيسية → بطاقة <b>TARGETING</b>\n"
-            ."• الصق الكود (مثل <code>YAN-KHU</code> أو <code>RUH-QUR</code>)\n"
+            ."• الصق الكود (مثل <code>YAN-KHU</code> أو <code>RUH-MLQ</code>)\n"
             ."• اضغط زر <b>حفظ</b> بجانب الحقل\n\n"
             ."<b>3️⃣ تفعيل الزمن الاحتياطي</b>\n"
             ."• بطاقة <b>الدوام الثاني (احتياطي)</b>\n"
@@ -941,7 +923,7 @@ final class WellzTelegramBot
             ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
             ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
             .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة | '
-            .'🏙️ <code>RUH-QUR</code> — قرطبة (#432)';
+            .'🏙️ <code>RUH-QUR</code> #432 | <code>RUH-MLQ</code> #430 | <code>RUH-BLV</code> #422';
     }
 
     private function howToRunVideoFileId(): string
