@@ -1,18 +1,28 @@
-# نشر على Render.com — Background Worker (مجاني)
-# https://render.com/docs/background-workers
+# نشر مجاني — البوت يعمل 24/7 بدون فتح حاسوبك
+# https://render.com — New + Blueprint أو ربط GitHub
 services:
-  - type: worker
+  - type: web
     name: wellzpro-telegram-bot
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: free
+    healthCheckPath: /
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_ADMIN_PIN
         value: WellzPro2026
       - key: TELEGRAM_BANK_ACCOUNT
-        value: "0545155289"
+        value: "0547196179"
+      - key: TELEGRAM_BANK_NAME
+        value: urpay
       - key: TELEGRAM_ADMIN_IDS
         value: ""
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      # اختياري — فيديو زر «طريقة التشغيل» (رابط mp4 أو file_id من /videoid)
+      - key: HOW_TO_RUN_VIDEO_FILE_ID
+        sync: false
+      - key: HOW_TO_RUN_VIDEO_URL
+        sync: false
