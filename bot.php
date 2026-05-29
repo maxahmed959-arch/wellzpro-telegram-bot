@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-05-29-area-codes-one-btn';
+    private const BOT_BUILD = '2026-05-29-video-caption-fix';
 
     public function __construct(array $config)
     {
@@ -59,6 +59,14 @@ final class WellzTelegramBot
         $this->apiPost('deleteWebhook', ['drop_pending_updates' => 'false']);
 
         echo "WellzPro Bot — خطط + urpay + إيصال | build ".self::BOT_BUILD."\n";
+        if ($this->hasHowToRunVideo()) {
+            $src = $this->howToRunVideoFileId() !== ''
+                ? 'file_id'
+                : ($this->howToRunVideoUrl() !== '' ? 'url' : 'assets/how-to-run.mp4');
+            echo "فيديو طريقة التشغيل: {$src}\n";
+        } else {
+            echo "⚠️  فيديو طريقة التشغيل غير مضبوط — أضف HOW_TO_RUN_VIDEO_FILE_ID في .env\n";
+        }
         $admins = $this->config['admin_ids'] ?? [];
         if ($admins === []) {
             echo "⚠️  لا يوجد أدمن — أرسل للبوت: /admin ".($this->config['admin_pin'] ?? '')."\n";
@@ -922,8 +930,13 @@ final class WellzTelegramBot
             ."<b>5️⃣ تشغيل البوت ومراقبة السجلات</b>\n"
             ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
             ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
-            .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة | '
-            .'🏙️ <code>RUH-QUR</code> #432 | <code>RUH-MLQ</code> #430 | <code>RUH-BLV</code> #422';
+            .'ℹ️ أكواد المناطق: اضغط <b>📍 أكواد المناطق</b> من الأزرار أدناه.';
+    }
+
+    private function howToRunVideoCaption(): string
+    {
+        return "📖 <b>طريقة تشغيل WellzPro</b>\n\n"
+            ."🎬 شاهد الفيديو — الخطوات الكاملة في الرسالة التالية ⬇️";
     }
 
     private function howToRunVideoFileId(): string
@@ -972,10 +985,8 @@ final class WellzTelegramBot
     private function sendHowToRunVideo(int $chatId, string $fullGuideText): bool
     {
         $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
-        $useFullCaption = mb_strlen($fullGuideText) <= 1024;
-        $caption = $useFullCaption
-            ? $fullGuideText
-            : "📖 <b>طريقة تشغيل WellzPro</b>\n\n🎬 شاهد الفيديو — التفاصيل في الرسالة التالية ⬇️";
+        // caption قصير دائماً — النص الكامل طويل وقد يفشل sendVideo (حد 1024 حرف)
+        $caption = $this->howToRunVideoCaption();
 
         $payload = [
             'chat_id' => $chatId,
@@ -1009,9 +1020,7 @@ final class WellzTelegramBot
             return false;
         }
 
-        if (! $useFullCaption) {
-            $this->send($chatId, $fullGuideText);
-        }
+        $this->send($chatId, $fullGuideText);
 
         return true;
     }
