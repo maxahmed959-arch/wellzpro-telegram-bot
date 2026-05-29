@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-05-26-plans-25-75';
+    private const BOT_BUILD = '2026-05-29-howto-video';
 
     public function __construct(array $config)
     {
@@ -117,7 +117,19 @@ final class WellzTelegramBot
         }
 
         if ($text !== '' && str_starts_with($text, '/')) {
+            if ($this->commandName($text) === '/videoid' && $this->isAdmin($fromId)) {
+                $this->onVideoIdCommand($chatId, $message);
+                return;
+            }
             if ($this->onCommand($chatId, $fromId, $text)) {
+                return;
+            }
+        }
+
+        if (isset($message['video']) && $this->isAdmin($fromId)) {
+            $caption = trim((string) ($message['caption'] ?? ''));
+            if ($caption !== '' && $this->commandName($caption) === '/videoid') {
+                $this->sendVideoFileIdHelp($chatId, $message['video']);
                 return;
             }
         }
@@ -127,6 +139,10 @@ final class WellzTelegramBot
         }
 
         if ($this->isAdmin($fromId) && isset($message['reply_to_message'])) {
+            if ($text !== '' && $this->commandName($text) === '/videoid') {
+                $this->onVideoIdCommand($chatId, $message);
+                return;
+            }
             $this->onAdminReply($chatId, $message);
             return;
         }
@@ -232,6 +248,9 @@ final class WellzTelegramBot
         if ($text === '') {
             return false;
         }
+        if (str_starts_with($text, '/')) {
+            return false;
+        }
         if ($this->isStartButton($text) || in_array($text, ['شراء', 'اشتراك', 'خطط'], true)) {
             return false;
         }
@@ -286,7 +305,7 @@ final class WellzTelegramBot
 
         if ($cmd === '/help') {
             if ($this->isAdmin($fromId)) {
-                $this->send($chatId, "/orders — طلبات معلقة\n/admin — تسجيل أدمن\nReply على رسالة طلب → يصل للعميل", null, false);
+                $this->send($chatId, "/orders — طلبات معلقة\n/admin — تسجيل أدمن\n/videoid — معرّف فيديو طريقة التشغيل\nReply على رسالة طلب → يصل للعميل", null, false);
             } else {
                 $this->send($chatId, '/start — خطط الاشتراك\n/cancel — إلغاء');
             }
@@ -504,6 +523,13 @@ final class WellzTelegramBot
             return;
         }
 
+        $adminText = trim((string) ($message['text'] ?? ''));
+        if ($adminText !== '' && $this->commandName($adminText) === '/videoid') {
+            $this->onVideoIdCommand($adminChatId, $message);
+
+            return;
+        }
+
         $replyMsgId = (int) ($reply['message_id'] ?? 0);
         $map = $this->loadNotifyMap($adminChatId, $replyMsgId);
         if ($map === null) {
@@ -513,7 +539,6 @@ final class WellzTelegramBot
 
         $customerChatId = (int) ($map['customer_chat_id'] ?? 0);
         $orderId = (string) ($map['order_id'] ?? '');
-        $adminText = trim((string) ($message['text'] ?? ''));
 
         if ($adminText === '') {
             $this->send($adminChatId, '❌ أرسل نصاً (رمز + JSON) كرد على رسالة الطلب.', null, false);
@@ -856,11 +881,48 @@ final class WellzTelegramBot
         );
     }
 
-    private function sendHowToRunGuide(int $chatId): void
+    private function onVideoIdCommand(int $chatId, array $message): void
     {
+        $reply = $message['reply_to_message'] ?? null;
+        if (is_array($reply) && isset($reply['video']) && is_array($reply['video'])) {
+            $this->sendVideoFileIdHelp($chatId, $reply['video']);
+
+            return;
+        }
+
         $this->send(
             $chatId,
-            "📖 <b>طريقة تشغيل البوت في WellzPro</b>\n\n"
+            "🎬 أرسل الفيديو أولاً، ثم <b>Reply</b> عليه وأرسل <code>/videoid</code>\n\n"
+            .'أو أرفق الفيديو مع تعليق: <code>/videoid</code>',
+            null,
+            false
+        );
+    }
+
+    private function sendVideoFileIdHelp(int $chatId, array $video): void
+    {
+        $fileId = trim((string) ($video['file_id'] ?? ''));
+        if ($fileId === '') {
+            $this->send($chatId, '❌ لم يُعثر على file_id.', null, false);
+
+            return;
+        }
+
+        $this->send(
+            $chatId,
+            "✅ <b>معرّف الفيديو</b> (لزر طريقة التشغيل):\n\n"
+            ."<code>{$fileId}</code>\n\n"
+            ."أضف في Render → Environment:\n"
+            ."<code>HOW_TO_RUN_VIDEO_FILE_ID={$fileId}</code>\n\n"
+            .'أو في <code>telegram-bot/.env</code> ثم أعد تشغيل البوت.',
+            null,
+            false
+        );
+    }
+
+    private function howToRunGuideText(): string
+    {
+        return "📖 <b>طريقة تشغيل البوت في WellzPro</b>\n\n"
             ."<b>1️⃣ لصق الجلسة</b>\n"
             ."• أيقونة <b>الحساب 👤</b> أعلى الشاشة الرئيسية\n"
             ."• سجّل دخول (إقامة + كلمة سر) أو «لصق JSON» من رسالة الإدارة\n\n"
@@ -879,8 +941,97 @@ final class WellzTelegramBot
             ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
             ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
             .'💊 <code>YAN-SIH-KHU</code> — صيدلية | 🛒 <code>YAN-KHU</code> — بقالة | '
-            .'🏙️ <code>RUH-QUR</code> — قرطبة (#432)'
-        );
+            .'🏙️ <code>RUH-QUR</code> — قرطبة (#432)';
+    }
+
+    private function howToRunVideoFileId(): string
+    {
+        return trim((string) ($this->config['how_to_run_video_file_id'] ?? ''));
+    }
+
+    private function howToRunVideoUrl(): string
+    {
+        return trim((string) ($this->config['how_to_run_video_url'] ?? ''));
+    }
+
+    private function howToRunVideoLocalPath(): string
+    {
+        $path = __DIR__.'/assets/how-to-run.mp4';
+
+        return is_file($path) ? $path : '';
+    }
+
+    private function hasHowToRunVideo(): bool
+    {
+        return $this->howToRunVideoFileId() !== ''
+            || $this->howToRunVideoUrl() !== ''
+            || $this->howToRunVideoLocalPath() !== '';
+    }
+
+    private function sendHowToRunGuide(int $chatId): void
+    {
+        $text = $this->howToRunGuideText();
+        if ($this->hasHowToRunVideo() && $this->sendHowToRunVideo($chatId, $text)) {
+            return;
+        }
+
+        if ($this->hasHowToRunVideo()) {
+            $this->send(
+                $chatId,
+                "⚠️ تعذّر إرسال الفيديو — الخطوات نصاً:\n\n".$text
+            );
+
+            return;
+        }
+
+        $this->send($chatId, $text);
+    }
+
+    private function sendHowToRunVideo(int $chatId, string $fullGuideText): bool
+    {
+        $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
+        $useFullCaption = mb_strlen($fullGuideText) <= 1024;
+        $caption = $useFullCaption
+            ? $fullGuideText
+            : "📖 <b>طريقة تشغيل WellzPro</b>\n\n🎬 شاهد الفيديو — التفاصيل في الرسالة التالية ⬇️";
+
+        $payload = [
+            'chat_id' => $chatId,
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => $markup,
+            'supports_streaming' => 'true',
+        ];
+
+        $fileId = $this->howToRunVideoFileId();
+        $videoUrl = $this->howToRunVideoUrl();
+        $localPath = $this->howToRunVideoLocalPath();
+
+        if ($fileId !== '') {
+            $payload['video'] = $fileId;
+        } elseif ($videoUrl !== '') {
+            $payload['video'] = $videoUrl;
+        } elseif ($localPath !== '') {
+            $payload['video'] = new CURLFile($localPath, 'video/mp4', 'how-to-run.mp4');
+        } else {
+            return false;
+        }
+
+        $json = $this->apiRequest('sendVideo', $payload, true, 300);
+        if (! is_array($json)) {
+            unset($payload['parse_mode']);
+            $json = $this->apiRequest('sendVideo', $payload, true, 300);
+        }
+
+        if (! is_array($json)) {
+            return false;
+        }
+
+        if (! $useFullCaption) {
+            $this->send($chatId, $fullGuideText);
+        }
+
+        return true;
     }
 
     private function send(int $chatId, string $text, ?array $replyMarkup = null, bool $withKeyboard = true): void
