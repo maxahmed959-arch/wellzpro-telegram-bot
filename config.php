@@ -18,27 +18,39 @@ return [
         'quarter' => ['label' => '3 أشهر (90 يوم)', 'price' => 75],
     ],
 
-    /** أزرار معلومات — أكواد المناطق في تطبيق WellzPro */
+    /** أكواد المناطق — زر واحد يعرض القائمة كاملة */
+    'area_codes_button' => '📍 أكواد المناطق',
+
     'area_codes' => [
         'pharmacy' => [
-            'button' => '💊 أكواد الصيدلية',
             'code' => 'YAN-SIH-KHU',
             'area_id' => 543,
             'label' => 'صيدلية ينبع',
             'api_shift_code' => 'YAN-SIH-KHU001',
         ],
         'grocery' => [
-            'button' => '🛒 أكواد البقالة',
             'code' => 'YAN-KHU',
             'area_id' => 394,
             'label' => 'بقالة الصاعدة (ينبع)',
+            'api_shift_code' => 'YAN-KHU001',
         ],
         'riyadh_qur' => [
-            'button' => '🏙️ قرطبة',
             'code' => 'RUH-QUR',
             'area_id' => 432,
-            'label' => 'قرطبة (RUH-QUR)',
+            'label' => 'قرطبة (الرياض)',
             'api_shift_code' => 'RUH-QUR001',
+        ],
+        'riyadh_mlq' => [
+            'code' => 'RUH-MLQ',
+            'area_id' => 430,
+            'label' => 'الملقا (الرياض)',
+            'api_shift_code' => 'RUH-MLQ001',
+        ],
+        'riyadh_blv' => [
+            'code' => 'RUH-BLV',
+            'area_id' => 422,
+            'label' => 'بوليفارد (الرياض)',
+            'api_shift_code' => 'RUH-BLV001',
         ],
     ],
 
