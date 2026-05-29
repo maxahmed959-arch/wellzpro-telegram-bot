@@ -9,7 +9,10 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
     header('Content-Type: text/plain; charset=utf-8');
-    echo "WellzPro Telegram Bot — cloud OK\n";
+    $ver = is_file(__DIR__.'/../VERSION.txt')
+        ? trim((string) file_get_contents(__DIR__.'/../VERSION.txt'))
+        : 'unknown';
+    echo "WellzPro Telegram Bot — cloud OK — {$ver}\n";
     exit;
 }
 
