@@ -8,7 +8,7 @@ return [
     ))),
     /** لتسجيل نفسك كأدمن: أرسل للبوت /admin الرمز */
     'admin_pin' => getenv('TELEGRAM_ADMIN_PIN') ?: 'WellzPro2026',
-    'bank_account' => getenv('TELEGRAM_BANK_ACCOUNT') ?: '0545155289',
+    'bank_account' => getenv('TELEGRAM_BANK_ACCOUNT') ?: '0547196179',
     'bank_name' => getenv('TELEGRAM_BANK_NAME') ?: 'urpay',
     'bank_holder' => getenv('TELEGRAM_BANK_HOLDER') ?: '',
 
@@ -43,6 +43,15 @@ return [
     ],
 
     'how_to_run_button' => '📖 طريقة التشغيل',
+
+    /**
+     * فيديو توضيحي لزر «طريقة التشغيل» (اختياري — واحد يكفي):
+     * - HOW_TO_RUN_VIDEO_FILE_ID من تيليجرام (الأفضل على Render)
+     * - HOW_TO_RUN_VIDEO_URL رابط mp4 مباشر
+     * - أو ضع الملف: telegram-bot/assets/how-to-run.mp4
+     */
+    'how_to_run_video_file_id' => getenv('HOW_TO_RUN_VIDEO_FILE_ID') ?: '',
+    'how_to_run_video_url' => getenv('HOW_TO_RUN_VIDEO_URL') ?: '',
 
     /** زر إرسال APK — ضع رابط مباشر (GitHub Releases أو ملف على السحابة) */
     'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
