@@ -1,0 +1,8 @@
+.env
+data/
+*.md
+get-my-id.bat
+get-my-id.php
+ping.bat
+run.bat
+start-telegram-bot.bat
