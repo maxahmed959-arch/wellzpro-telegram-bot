@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-07-samurai-guide-apk-fix';
+    private const BOT_BUILD = '2026-06-07-text-guide-apk-default';
 
     public function __construct(array $config)
     {
@@ -59,13 +59,12 @@ final class WellzTelegramBot
         $this->apiPost('deleteWebhook', ['drop_pending_updates' => 'false']);
 
         echo "WellzPro Bot — خطط + urpay + إيصال | build ".self::BOT_BUILD."\n";
-        if ($this->hasHowToRunVideo()) {
-            $src = $this->howToRunVideoFileId() !== ''
-                ? 'file_id'
-                : ($this->howToRunVideoUrl() !== '' ? 'url' : 'assets/how-to-run.mp4');
-            echo "فيديو طريقة التشغيل: {$src}\n";
+        echo "دليل طريقة التشغيل: نص فقط (بدون فيديو)\n";
+        $apkUrl = $this->appDownloadUrl();
+        if ($apkUrl !== '') {
+            echo "APK: {$apkUrl}\n";
         } else {
-            echo "⚠️  فيديو طريقة التشغيل غير مضبوط — أضف HOW_TO_RUN_VIDEO_FILE_ID في .env\n";
+            echo "⚠️  APP_DOWNLOAD_URL غير مضبوط\n";
         }
         $admins = $this->config['admin_ids'] ?? [];
         if ($admins === []) {
@@ -1073,21 +1072,7 @@ final class WellzTelegramBot
 
     private function sendHowToRunGuide(int $chatId): void
     {
-        $text = $this->howToRunGuideText();
-        if ($this->hasHowToRunVideo() && $this->sendHowToRunVideo($chatId, $text)) {
-            return;
-        }
-
-        if ($this->hasHowToRunVideo()) {
-            $this->send(
-                $chatId,
-                "⚠️ تعذّر إرسال الفيديو — الخطوات نصاً:\n\n".$text
-            );
-
-            return;
-        }
-
-        $this->send($chatId, $text);
+        $this->send($chatId, $this->howToRunGuideText());
     }
 
     private function sendHowToRunVideo(int $chatId, string $fullGuideText): bool
