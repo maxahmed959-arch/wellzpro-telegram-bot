@@ -52,6 +52,12 @@ return [
             'label' => 'بوليفارد (الرياض)',
             'api_shift_code' => 'RUH-BLV001',
         ],
+        'riyadh_flh' => [
+            'code' => 'RUH-FLH',
+            'area_id' => 440,
+            'label' => 'الفلاح (الرياض)',
+            'api_shift_code' => 'RUH-FLH001',
+        ],
     ],
 
     'how_to_run_button' => '📖 طريقة التشغيل',
@@ -65,7 +71,8 @@ return [
     'how_to_run_video_file_id' => getenv('HOW_TO_RUN_VIDEO_FILE_ID') ?: '',
     'how_to_run_video_url' => getenv('HOW_TO_RUN_VIDEO_URL') ?: '',
 
-    /** زر إرسال APK — ضع رابط مباشر (GitHub Releases أو ملف على السحابة) */
+    /** زر إرسال APK — رابط GitHub Releases (samu.apk) */
     'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
     'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: '',
+    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.apk',
 ];

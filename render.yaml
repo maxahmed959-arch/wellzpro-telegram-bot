@@ -26,3 +26,8 @@ services:
         sync: false
       - key: HOW_TO_RUN_VIDEO_URL
         sync: false
+      # رابط APK مباشر (GitHub Releases) — زر «📲 تحميل التطبيق»
+      - key: APP_DOWNLOAD_URL
+        sync: false
+      - key: APP_DOWNLOAD_FILENAME
+        value: samu.apk
