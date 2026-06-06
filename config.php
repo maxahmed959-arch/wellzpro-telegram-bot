@@ -62,17 +62,12 @@ return [
 
     'how_to_run_button' => '📖 طريقة التشغيل',
 
-    /**
-     * فيديو توضيحي لزر «طريقة التشغيل» (اختياري — واحد يكفي):
-     * - HOW_TO_RUN_VIDEO_FILE_ID من تيليجرام (الأفضل على Render)
-     * - HOW_TO_RUN_VIDEO_URL رابط mp4 مباشر
-     * - أو ضع الملف: telegram-bot/assets/how-to-run.mp4
-     */
-    'how_to_run_video_file_id' => getenv('HOW_TO_RUN_VIDEO_FILE_ID') ?: '',
-    'how_to_run_video_url' => getenv('HOW_TO_RUN_VIDEO_URL') ?: '',
+    /** معطّل — دليل «طريقة التشغيل» نص فقط */
+    'how_to_run_video_file_id' => '',
+    'how_to_run_video_url' => '',
 
     /** زر إرسال APK — رابط GitHub Releases (samu.apk) */
     'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
-    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: '',
+    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: 'https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/samu.apk',
     'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.apk',
 ];
