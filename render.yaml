@@ -28,6 +28,6 @@ services:
         sync: false
       # رابط APK مباشر (GitHub Releases) — زر «📲 تحميل التطبيق»
       - key: APP_DOWNLOAD_URL
-        sync: false
+        value: https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/samu.apk
       - key: APP_DOWNLOAD_FILENAME
         value: samu.apk
