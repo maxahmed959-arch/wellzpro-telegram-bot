@@ -26,7 +26,8 @@ services:
         sync: false
       - key: HOW_TO_RUN_VIDEO_URL
         sync: false
-      - key: APP_DOWNLOAD_GITHUB_REPO
-        value: maxahmed959-arch/wellzpro-telegram-bot
-      - key: APP_DOWNLOAD_RELEASE
-        value: v1.0.0
+      # رابط APK الأساسي (GitHub Releases) — زر «📲 تحميل التطبيق» يعرض 3 نسخ
+      - key: APP_DOWNLOAD_URL
+        value: https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/samu.8.apk
+      - key: APP_DOWNLOAD_FILENAME
+        value: samu.8.apk
