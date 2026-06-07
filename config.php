@@ -52,22 +52,29 @@ return [
             'label' => 'بوليفارد (الرياض)',
             'api_shift_code' => 'RUH-BLV001',
         ],
-        'riyadh_flh' => [
-            'code' => 'RUH-FLH',
-            'area_id' => 440,
-            'label' => 'الفلاح (الرياض)',
-            'api_shift_code' => 'RUH-FLH001',
-        ],
     ],
 
     'how_to_run_button' => '📖 طريقة التشغيل',
 
-    /** معطّل — دليل «طريقة التشغيل» نص فقط */
-    'how_to_run_video_file_id' => '',
-    'how_to_run_video_url' => '',
+    /**
+     * فيديو توضيحي لزر «طريقة التشغيل» (اختياري — واحد يكفي):
+     * - HOW_TO_RUN_VIDEO_FILE_ID من تيليجرام (الأفضل على Render)
+     * - HOW_TO_RUN_VIDEO_URL رابط mp4 مباشر
+     * - أو ضع الملف: telegram-bot/assets/how-to-run.mp4
+     */
+    'how_to_run_video_file_id' => getenv('HOW_TO_RUN_VIDEO_FILE_ID') ?: '',
+    'how_to_run_video_url' => getenv('HOW_TO_RUN_VIDEO_URL') ?: '',
 
-    /** زر إرسال APK — رابط GitHub Releases (samu.apk) */
+    /** زر إرسال APK */
     'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
-    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: 'https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/samu.apk',
-    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.apk',
+    /** رابط واحد (قديم) — يُستخدم إن لم تُضبط الروابط الثلاثة */
+    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: '',
+    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'v8a.apk',
+    /** بناء روابط تلقائياً: github.com/{repo}/releases/download/{release}/… */
+    'app_download_github_repo' => getenv('APP_DOWNLOAD_GITHUB_REPO') ?: 'maxahmed959-arch/wellzpro-telegram-bot',
+    'app_download_release' => getenv('APP_DOWNLOAD_RELEASE') ?: 'v1.0.0',
+    'app_download_url_v8a' => getenv('APP_DOWNLOAD_URL_V8A') ?: '',
+    'app_download_url_v7a' => getenv('APP_DOWNLOAD_URL_V7A') ?: '',
+    'app_download_url_samu' => getenv('APP_DOWNLOAD_URL_SAMU') ?: '',
 ];
+
