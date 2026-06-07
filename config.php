@@ -52,29 +52,44 @@ return [
             'label' => 'بوليفارد (الرياض)',
             'api_shift_code' => 'RUH-BLV001',
         ],
+        'riyadh_flh' => [
+            'code' => 'RUH-FLH',
+            'area_id' => 440,
+            'label' => 'الفلاح (الرياض)',
+            'api_shift_code' => 'RUH-FLH001',
+        ],
     ],
 
     'how_to_run_button' => '📖 طريقة التشغيل',
 
-    /**
-     * فيديو توضيحي لزر «طريقة التشغيل» (اختياري — واحد يكفي):
-     * - HOW_TO_RUN_VIDEO_FILE_ID من تيليجرام (الأفضل على Render)
-     * - HOW_TO_RUN_VIDEO_URL رابط mp4 مباشر
-     * - أو ضع الملف: telegram-bot/assets/how-to-run.mp4
-     */
-    'how_to_run_video_file_id' => getenv('HOW_TO_RUN_VIDEO_FILE_ID') ?: '',
-    'how_to_run_video_url' => getenv('HOW_TO_RUN_VIDEO_URL') ?: '',
+    /** معطّل — دليل «طريقة التشغيل» نص فقط */
+    'how_to_run_video_file_id' => '',
+    'how_to_run_video_url' => '',
 
-    /** زر إرسال APK */
+    /** زر إرسال APK — رابط GitHub Releases (يُستخرج منه مجلد الإصدار لباقي النسخ) */
     'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
-    /** رابط واحد (قديم) — يُستخدم إن لم تُضبط الروابط الثلاثة */
-    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: '',
-    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'v8a.apk',
-    /** بناء روابط تلقائياً: github.com/{repo}/releases/download/{release}/… */
-    'app_download_github_repo' => getenv('APP_DOWNLOAD_GITHUB_REPO') ?: 'maxahmed959-arch/wellzpro-telegram-bot',
-    'app_download_release' => getenv('APP_DOWNLOAD_RELEASE') ?: 'v1.0.0',
-    'app_download_url_v8a' => getenv('APP_DOWNLOAD_URL_V8A') ?: '',
-    'app_download_url_v7a' => getenv('APP_DOWNLOAD_URL_V7A') ?: '',
-    'app_download_url_samu' => getenv('APP_DOWNLOAD_URL_SAMU') ?: '',
-];
+    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: 'https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/samu.8.apk',
+    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.8.apk',
 
+    /** نسخ APK — تظهر كأزرار عند الضغط على «تحميل التطبيق» */
+    'app_apk_variants' => [
+        [
+            'key' => 'full',
+            'label' => '📱 النسخة الكاملة',
+            'filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.8.apk',
+            'hint' => 'موصى بها — تعمل على معظم الأجهزة',
+        ],
+        [
+            'key' => 'v7a',
+            'label' => '📱 v7a (32-bit)',
+            'filename' => 'v7a.apk',
+            'hint' => 'للأجهزة القديمة (معالج 32-bit)',
+        ],
+        [
+            'key' => 'v8a',
+            'label' => '📱 v8a (64-bit)',
+            'filename' => 'v8a.apk',
+            'hint' => 'للأجهزة الحديثة (معالج 64-bit)',
+        ],
+    ],
+];
