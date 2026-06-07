@@ -1,9 +1,9 @@
 <?php
 
 /**
- * WellzPro Telegram Bot — مستقل.
- * العميل: خطط + إقامة + كلمة سر + تحويل urpay + إيصال.
- * الأدمن: يستلم الطلب في محادثة البوت ويرد بـ Reply على رسالة الطلب.
+ * WellzPro Telegram Bot — Samurai MiniBot edition.
+ * العميل: خطط + معرف الجهاز + تحويل urpay + إيصال → يستلم مفتاح التفعيل.
+ * الأدمن: Reply على رسالة الطلب → يرسل License Key للعميل.
  */
 
 declare(strict_types=1);
@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-07-multi-apk-buttons';
+    private const BOT_BUILD = '2026-06-07-apk-variants-menu';
 
     public function __construct(array $config)
     {
@@ -59,13 +59,12 @@ final class WellzTelegramBot
         $this->apiPost('deleteWebhook', ['drop_pending_updates' => 'false']);
 
         echo "WellzPro Bot — خطط + urpay + إيصال | build ".self::BOT_BUILD."\n";
-        if ($this->hasHowToRunVideo()) {
-            $src = $this->howToRunVideoFileId() !== ''
-                ? 'file_id'
-                : ($this->howToRunVideoUrl() !== '' ? 'url' : 'assets/how-to-run.mp4');
-            echo "فيديو طريقة التشغيل: {$src}\n";
+        echo "دليل طريقة التشغيل: نص فقط (بدون فيديو)\n";
+        $apkUrl = $this->appDownloadUrl();
+        if ($apkUrl !== '') {
+            echo "APK: {$apkUrl}\n";
         } else {
-            echo "⚠️  فيديو طريقة التشغيل غير مضبوط — أضف HOW_TO_RUN_VIDEO_FILE_ID في .env\n";
+            echo "⚠️  APP_DOWNLOAD_URL غير مضبوط\n";
         }
         $admins = $this->config['admin_ids'] ?? [];
         if ($admins === []) {
@@ -286,7 +285,7 @@ final class WellzTelegramBot
             $pin = $arg !== '' ? $arg : trim(substr($text, strlen('/admin')));
             if ($pin === ($this->config['admin_pin'] ?? '')) {
                 $this->registerAdmin($fromId);
-                $this->send($chatId, "✅ تم تسجيلك كأدمن.\nستصلك الطلبات هنا في محادثة <b>WellzProShopBot</b>.\n\nللرد على عميل: <b>Reply</b> على رسالة الطلب وأرسل رمز التفعيل + JSON.", null, false);
+                $this->send($chatId, "✅ تم تسجيلك كأدمن.\nستصلك الطلبات هنا في محادثة <b>WellzProShopBot</b>.\n\nللرد على عميل: <b>Reply</b> على رسالة «طلب جديد» وأرسل <b>مفتاح التفعيل License Key</b>.", null, false);
             } else {
                 $this->send($chatId, '❌ رمز خاطئ. مثال: /admin الرمز_من_env', null, false);
             }
@@ -313,7 +312,7 @@ final class WellzTelegramBot
 
         if ($cmd === '/help') {
             if ($this->isAdmin($fromId)) {
-                $this->send($chatId, "/orders — طلبات معلقة\n/admin — تسجيل أدمن\n/videoid — معرّف فيديو طريقة التشغيل\nReply على رسالة طلب → يصل للعميل", null, false);
+                $this->send($chatId, "/orders — طلبات معلقة\n/admin — تسجيل أدمن\n/videoid — معرّف فيديو طريقة التشغيل\nReply على «طلب جديد» → أرسل License Key للعميل", null, false);
             } else {
                 $this->send($chatId, '/start — خطط الاشتراك\n/cancel — إلغاء');
             }
@@ -346,26 +345,25 @@ final class WellzTelegramBot
 
         $state = $session['state'] ?? '';
 
-        if ($state === 'waiting_iqama') {
-            if (! preg_match('/^\d{10}$/', $text)) {
-                $this->send($chatId, '❌ رقم الإقامة: <b>10 أرقام</b> فقط.');
+        if ($state === 'waiting_device_id') {
+            $deviceId = $this->normalizeDeviceId($text);
+            if ($deviceId === '') {
+                $this->send($chatId, "❌ معرف الجهاز غير صالح.\nأدخل <b>8 أحرف</b> على الأقل (من شاشة الاشتراك — Vol↑).");
                 return;
             }
-            $session['iqama_id'] = $text;
-            $session['state'] = 'waiting_password';
-            $this->saveSession($chatId, $session);
-            $this->send($chatId, '🔐 كلمة السر: أدخل <b>6 أحرف</b> بالضبط:');
-            return;
-        }
-
-        if ($state === 'waiting_password') {
-            if (! preg_match('/^.{6}$/u', $text)) {
-                $this->send($chatId, '❌ كلمة السر: <b>6 أحرف</b> بالضبط.');
-                return;
-            }
-            $session['password'] = $text;
+            $session['device_id'] = $deviceId;
             $this->submitOrderAndShowBank($chatId, $from, $session);
         }
+    }
+
+    private function normalizeDeviceId(string $text): string
+    {
+        $t = strtoupper(preg_replace('/[\s\-]+/', '', trim($text)) ?? '');
+        if (! preg_match('/^[A-F0-9]{8,64}$/', $t)) {
+            return '';
+        }
+
+        return $t;
     }
 
     private function submitOrderAndShowBank(int $chatId, array $from, array $session): void
@@ -379,8 +377,7 @@ final class WellzTelegramBot
             'plan' => $session['plan'],
             'plan_label' => $session['plan_label'],
             'price' => $session['price'],
-            'iqama_id' => $session['iqama_id'],
-            'password' => $session['password'],
+            'device_id' => $session['device_id'],
             'status' => 'awaiting_transfer',
             'created_at' => date('c'),
         ];
@@ -404,8 +401,7 @@ final class WellzTelegramBot
             "📋 <b>ملخص الطلب</b> — <code>{$orderId}</code>\n\n"
             .'📦 الخطة: <b>'.($session['plan_label'] ?? '')."</b>\n"
             .'💰 المبلغ: <b>'.($session['price'] ?? 0)." ريال</b>\n"
-            .'🪪 الإقامة: <code>'.($session['iqama_id'] ?? '')."</code>\n"
-            .'🔐 كلمة السر: <code>'.($session['password'] ?? '')."</code>\n\n"
+            .'📱 Device ID: <code>'.($session['device_id'] ?? '')."</code>\n\n"
             ."🏦 <b>التحويل البنكي</b>\n"
             ."<b>{$bankName}</b> = <code>{$bank}</code>{$holderLine}\n\n"
             ."📸 بعد التحويل، <b>أرسل صورة إشعار التحويل</b> هنا.\n"
@@ -454,7 +450,7 @@ final class WellzTelegramBot
             $chatId,
             "✅ <b>تم استلام إشعار التحويل</b>\n\n"
             ."طلبك <code>{$orderId}</code> قيد المراجعة.\n"
-            ."سيصلك <b>رمز التفعيل</b> وبيانات الجلسة بعد التأكيد.\n\n"
+            ."سيصلك <b>مفتاح التفعيل License Key</b> بعد التأكيد.\n\n"
             .'⏳ <b>انتظر الرد من الإدارة في هذه المحادثة.</b>'
         );
 
@@ -480,13 +476,12 @@ final class WellzTelegramBot
             ."👤 {$nameLine}\n"
             .'📦 '.($order['plan_label'] ?? '')."\n"
             .'💰 <b>'.($order['price'] ?? 0)." ر.س</b>\n"
-            .'🪪 <code>'.($order['iqama_id'] ?? '')."</code>\n"
-            .'🔐 <code>'.($order['password'] ?? '')."</code>\n"
+            .'📱 <code>'.($order['device_id'] ?? $order['iqama_id'] ?? '')."</code>\n"
             ."🏦 {$bankName}: <code>{$bank}</code>\n\n"
             ."📸 إشعار التحويل مرفق أعلاه.\n\n"
             ."⬇️ <b>للرد على العميل:</b>\n"
             ."اضغط <b>رد Reply</b> على هذه الرسالة\n"
-            ."وأرسل: رمز التفعيل + JSON الجلسة";
+            ."وأرسل <b>مفتاح التفعيل</b> (مثل <code>WELLZ-XXXX-XXXX</code>)";
 
         foreach ($admins as $adminId) {
             $adminChat = (int) $adminId;
@@ -549,11 +544,13 @@ final class WellzTelegramBot
         $orderId = (string) ($map['order_id'] ?? '');
 
         if ($adminText === '') {
-            $this->send($adminChatId, '❌ أرسل نصاً (رمز + JSON) كرد على رسالة الطلب.', null, false);
+            $this->send($adminChatId, '❌ أرسل نصاً (License Key) كرد على رسالة «طلب جديد».', null, false);
             return;
         }
 
-        $customerMsg = "🎉 <b>تم تفعيل طلبك</b>\n<code>{$orderId}</code>\n\n".$adminText;
+        $customerMsg = "🎉 <b>تم تفعيل طلبك</b>\n<code>{$orderId}</code>\n\n"
+            ."🔑 <b>مفتاح التفعيل:</b>\n<code>{$adminText}</code>\n\n"
+            ."📲 افتح Samurai → Vol↑ → الصق المفتاح → LOGIN";
         $this->send($customerChatId, $customerMsg, null, true);
 
         $orderPath = $this->dataDir.'/orders/'.$orderId.'.json';
@@ -651,8 +648,23 @@ final class WellzTelegramBot
     private function onCallback(array $cb): void
     {
         $id = (string) ($cb['id'] ?? '');
+        $data = (string) ($cb['data'] ?? '');
         $message = $cb['message'] ?? null;
         $chatId = is_array($message) ? (int) ($message['chat']['id'] ?? 0) : 0;
+
+        if (str_starts_with($data, 'apk:')) {
+            $variantKey = substr($data, 4);
+            $this->apiPost('answerCallbackQuery', [
+                'callback_query_id' => $id,
+                'text' => 'جارٍ إرسال الملف…',
+            ]);
+            if ($chatId > 0) {
+                $this->sendApkVariant($chatId, $variantKey);
+            }
+
+            return;
+        }
+
         $this->apiPost('answerCallbackQuery', ['callback_query_id' => $id, 'text' => 'استخدم الأزرار أسفل الشاشة']);
         if ($chatId) {
             $this->sendPlansMenu($chatId);
@@ -668,14 +680,16 @@ final class WellzTelegramBot
         }
         $plan = $plans[$planKey];
         $this->saveSession($chatId, [
-            'state' => 'waiting_iqama',
+            'state' => 'waiting_device_id',
             'plan' => $planKey,
             'plan_label' => $plan['label'],
             'price' => (int) $plan['price'],
         ]);
         $this->send(
             $chatId,
-            "✅ <b>{$plan['label']}</b>\n💰 <b>{$plan['price']} ريال</b>\n\n🪪 رقم الإقامة (<b>10 أرقام</b>):"
+            "✅ <b>{$plan['label']}</b>\n💰 <b>{$plan['price']} ريال</b>\n\n"
+            ."📱 <b>معرف الجهاز / Device ID</b>\n"
+            ."(من شاشة الاشتراك — اضغط <b>Vol↑</b> داخل Samurai ثم انسخ المعرف):"
         );
     }
 
@@ -697,10 +711,10 @@ final class WellzTelegramBot
     private function welcomeText(): string
     {
         $lines = [
-            '🥋 <b>WellzPro</b>',
+            '🥋 <b>WellzPro</b> · Samurai MiniBot',
             '',
             'اضغط <b>▶️ بدء</b> أو اختر مدة الاشتراك:',
-            '📍 📖 📲 — أكواد المناطق + طريقة التشغيل + تحميل التطبيق',
+            '📍 📖 📲 — أكواد المناطق + طريقة التشغيل + تحميل Samurai',
         ];
         foreach ($this->config['plans'] as $key => $plan) {
             $lines[] = $this->planWelcomeLine($key, (int) $plan['price']);
@@ -784,7 +798,7 @@ final class WellzTelegramBot
         $lines = [
             '📍 <b>أكواد المناطق</b>',
             '',
-            'الصق الكود في بطاقة <b>TARGETING</b> ثم احفظ:',
+            'الصق الكود في لوحة البوت (<b>Vol↑</b>) ثم <b>SAVE</b>:',
             '',
         ];
 
@@ -825,65 +839,16 @@ final class WellzTelegramBot
         return (string) ($this->config['app_download_button'] ?? '📲 تحميل التطبيق');
     }
 
-    /** روابط APK — 3 نسخ أو رابط واحد (legacy). */
-    private function appDownloadLinks(): array
+    private function appDownloadUrl(): string
     {
-        $repo = trim((string) ($this->config['app_download_github_repo'] ?? ''));
-        $release = trim((string) ($this->config['app_download_release'] ?? ''));
-        $v8a = trim((string) ($this->config['app_download_url_v8a'] ?? ''));
-        $v7a = trim((string) ($this->config['app_download_url_v7a'] ?? ''));
-        $samu = trim((string) ($this->config['app_download_url_samu'] ?? ''));
-
-        if ($repo !== '' && $release !== '') {
-            $base = 'https://github.com/'.$repo.'/releases/download/'.$release;
-            if ($v8a === '') {
-                $v8a = $base.'/v8a.apk';
-            }
-            if ($v7a === '') {
-                $v7a = $base.'/v7a.apk';
-            }
-            if ($samu === '') {
-                $samu = $base.'/samu.8.apk';
-            }
-        }
-
-        $links = [];
-        if ($v8a !== '') {
-            $links[] = [
-                'label' => '📱 64-bit — v8a (موصى)',
-                'url' => $this->normalizeApkDownloadUrl($v8a),
-            ];
-        }
-        if ($v7a !== '') {
-            $links[] = [
-                'label' => '📱 32-bit — v7a',
-                'url' => $this->normalizeApkDownloadUrl($v7a),
-            ];
-        }
-        if ($samu !== '') {
-            $links[] = [
-                'label' => '📱 نسخة عامة — samu.8',
-                'url' => $this->normalizeApkDownloadUrl($samu),
-            ];
-        }
-
-        if ($links !== []) {
-            return $links;
-        }
-
-        $legacy = $this->normalizeApkDownloadUrl(trim((string) ($this->config['app_download_url'] ?? '')));
-        if ($legacy === '') {
-            return [];
-        }
-
-        return [['label' => '⬇️ تحميل WellzPro (APK)', 'url' => $legacy]];
+        return $this->normalizeApkDownloadUrl(trim((string) ($this->config['app_download_url'] ?? '')));
     }
 
     private function appDownloadFilename(): string
     {
         $name = trim((string) ($this->config['app_download_filename'] ?? ''));
 
-        return $name !== '' ? $name : 'v8a.apk';
+        return $name !== '' ? $name : 'samu.apk';
     }
 
     /** يحوّل روابط صفحة Release إلى رابط تحميل مباشر إن أمكن. */
@@ -893,10 +858,12 @@ final class WellzTelegramBot
             return '';
         }
 
+        // releases/download/... — جاهز للتحميل المباشر
         if (str_contains($url, '/releases/download/')) {
             return $url;
         }
 
+        // github.com/.../releases/tag/vX.Y.Z → releases/download/vX.Y.Z/filename
         if (preg_match('#github\.com/([^/]+/[^/]+)/releases/tag/([^/?#]+)#i', $url, $m)) {
             $file = $this->appDownloadFilename();
 
@@ -908,58 +875,139 @@ final class WellzTelegramBot
 
     private function sendAppDownload(int $chatId): void
     {
-        $links = $this->appDownloadLinks();
-        if ($links === []) {
+        if ($this->apkReleaseBaseUrl() === '') {
             $this->send(
                 $chatId,
                 "❌ رابط التطبيق غير مضبوط بعد.\n\n"
-                ."الإدارة: أضف في Render Environment:\n"
-                ."<code>APP_DOWNLOAD_GITHUB_REPO=maxahmed959-arch/wellzpro-telegram-bot</code>\n"
-                .'<code>APP_DOWNLOAD_RELEASE=v1.0.0</code>'
+                .'الإدارة: أضف <code>APP_DOWNLOAD_URL</code> في Render Environment '
+                ."بصيغة:\n<code>https://github.com/USER/REPO/releases/download/v1.0.0/samu.8.apk</code>"
             );
 
             return;
         }
 
-        if (count($links) >= 2) {
-            $rows = [];
-            foreach ($links as $link) {
-                $rows[] = [['text' => $link['label'], 'url' => $link['url']]];
+        $rows = [];
+        foreach ($this->apkVariants() as $variant) {
+            $key = (string) ($variant['key'] ?? '');
+            $label = (string) ($variant['label'] ?? $key);
+            if ($key === '') {
+                continue;
             }
-            $this->send(
-                $chatId,
-                "📲 <b>WellzPro — Samurai + MiniBot</b>\n\n"
-                ."اختر نسخة APK المناسبة لهاتفك:\n"
-                ."• <b>64-bit (v8a)</b> — معظم الهواتف الحديثة ✅\n"
-                ."• <b>32-bit (v7a)</b> — أجهزة قديمة\n"
-                ."• <b>samu.8</b> — نسخة عامة\n\n"
-                .'بعد التثبيت: اضغط <b>📖 طريقة التشغيل</b>.',
-                ['inline_keyboard' => $rows]
-            );
+            $rows[] = [['text' => $label, 'callback_data' => 'apk:'.$key]];
+        }
+
+        if ($rows === []) {
+            $this->send($chatId, '❌ لا توجد نسخ APK مضبوطة. تواصل مع الإدارة.');
 
             return;
         }
 
-        $url = $links[0]['url'];
-        $filename = $this->appDownloadFilename();
-        $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
-        $caption = "📲 <b>WellzPro — Samurai + MiniBot</b>\n\n"
-            .'ثبّت APK ثم اتبع <b>📖 طريقة التشغيل</b> للتفعيل.';
+        $text = "📲 <b>اختر نسخة التطبيق</b>\n\n"
+            ."• <b>النسخة الكاملة</b> — الأفضل لمعظم المستخدمين\n"
+            ."• <b>v7a</b> — أجهزة قديمة (32-bit)\n"
+            ."• <b>v8a</b> — أجهزة حديثة (64-bit)\n\n"
+            .'سيُرسل الملف <b>داخل تيليجرام</b> — لا تفتح GitHub من المتصفح الداخلي.';
 
+        $this->send($chatId, $text, ['inline_keyboard' => $rows]);
+    }
+
+    private function apkVariants(): array
+    {
+        $variants = $this->config['app_apk_variants'] ?? [];
+        if (! is_array($variants)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($variants as $variant) {
+            if (! is_array($variant)) {
+                continue;
+            }
+            $filename = trim((string) ($variant['filename'] ?? ''));
+            $key = trim((string) ($variant['key'] ?? ''));
+            if ($filename === '' || $key === '') {
+                continue;
+            }
+            $out[] = $variant;
+        }
+
+        return $out;
+    }
+
+    private function apkVariantByKey(string $key): ?array
+    {
+        foreach ($this->apkVariants() as $variant) {
+            if (($variant['key'] ?? '') === $key) {
+                return $variant;
+            }
+        }
+
+        return null;
+    }
+
+    private function apkReleaseBaseUrl(): string
+    {
+        $url = $this->appDownloadUrl();
+        if ($url === '') {
+            return '';
+        }
+        $pos = strrpos($url, '/');
+        if ($pos === false) {
+            return '';
+        }
+
+        return substr($url, 0, $pos);
+    }
+
+    private function apkUrlForFilename(string $filename): string
+    {
+        $base = $this->apkReleaseBaseUrl();
+        if ($base === '') {
+            return '';
+        }
+
+        return $base.'/'.ltrim($filename, '/');
+    }
+
+    private function sendApkVariant(int $chatId, string $variantKey): void
+    {
+        $variant = $this->apkVariantByKey($variantKey);
+        if ($variant === null) {
+            $this->send($chatId, '❌ نسخة غير معروفة. اضغط 📲 تحميل التطبيق واختر من القائمة.');
+
+            return;
+        }
+
+        $filename = (string) ($variant['filename'] ?? 'samu.apk');
+        $url = $this->apkUrlForFilename($filename);
+        if ($url === '') {
+            $this->send($chatId, '❌ رابط التحميل غير مضبوط. تواصل مع الإدارة.');
+
+            return;
+        }
+
+        $label = (string) ($variant['label'] ?? $filename);
+        $hint = trim((string) ($variant['hint'] ?? ''));
+        $caption = "📲 <b>WellzPro — {$label}</b>\n";
+        if ($hint !== '') {
+            $caption .= "{$hint}\n\n";
+        }
+        $caption .= 'ثبّت APK ثم اتبع <b>📖 طريقة التشغيل</b> للتفعيل.';
+
+        $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
         if ($this->sendApkDocument($chatId, $url, $filename, $caption, $markup)) {
             return;
         }
 
         $this->send(
             $chatId,
-            "📲 <b>تحميل WellzPro</b>\n\n"
-            ."اضغط الزر لفتح رابط التحميل:\n"
-            ."<a href=\"{$url}\">{$url}</a>",
-            ['inline_keyboard' => [[['text' => $links[0]['label'], 'url' => $url]]]]
+            "❌ تعذّر إرسال <code>{$filename}</code>.\n\n"
+            ."تحقق من وجود الملف في GitHub Releases:\n"
+            ."<code>{$url}</code>"
         );
     }
 
-    /** يرسل APK كملف داخل Telegram (رابط واحد فقط). */
+    /** يرسل APK كملف داخل Telegram (بدون فتح GitHub). */
     private function sendApkDocument(int $chatId, string $url, string $filename, string $caption, string $markup): bool
     {
         $local = $this->fetchUrlToTempFile($url);
@@ -1074,30 +1122,45 @@ final class WellzTelegramBot
 
     private function howToRunGuideText(): string
     {
-        return "📖 <b>طريقة تشغيل البوت في WellzPro</b>\n\n"
-            ."<b>1️⃣ لصق الجلسة</b>\n"
-            ."• أيقونة <b>الحساب 👤</b> أعلى الشاشة الرئيسية\n"
-            ."• سجّل دخول (إقامة + كلمة سر) أو «لصق JSON» من رسالة الإدارة\n\n"
-            ."<b>2️⃣ لصق كود المنطقة</b>\n"
-            ."• الشاشة الرئيسية → بطاقة <b>TARGETING</b>\n"
-            ."• الصق الكود (مثل <code>YAN-KHU</code> أو <code>RUH-MLQ</code>)\n"
-            ."• اضغط زر <b>حفظ</b> بجانب الحقل\n\n"
-            ."<b>3️⃣ تفعيل الزمن الاحتياطي</b>\n"
-            ."• بطاقة <b>الدوام الثاني (احتياطي)</b>\n"
-            ."• فعّل الدوام الثاني إن أردت وردية احتياطية\n\n"
-            ."<b>4️⃣ ضبط Fast Mode و Dual Tap</b>\n"
-            ."• بطاقة <b>PERFORMANCE</b> في الشاشة الرئيسية\n"
-            ."• فعّل <b>Fast Mode</b> (استطلاع أسرع)\n"
-            ."• فعّل <b>Dual Tap</b> (حجز مزدوج) إن رغبت\n\n"
-            ."<b>5️⃣ تشغيل البوت ومراقبة السجلات</b>\n"
-            ."• زر <b>حفظ 💾</b> أسفل الشاشة أو مفتاح <b>BOT</b> أعلى اليمين\n"
-            ."• راقب <b>السجلات</b> في أسفل الشاشة الرئيسية\n\n"
+        return "📖 <b>طريقة التشغيل — Wellz Pro MiniBot</b>\n\n"
+            ."<b>1️⃣ تحميل وتثبيت التطبيق</b>\n"
+            ."• اضغط <b>📲 تحميل التطبيق</b> ثم اختر النسخة المناسبة\n"
+            ."• <b>النسخة الكاملة</b> للأغلب — أو v7a/v8a حسب جهازك\n"
+            ."• ثبّت APK (اسمح بالتثبيت من مصادر غير معروفة إن طُلب)\n"
+            ."• احذف أي نسخة قديمة من Samurai قبل التثبيت\n\n"
+            ."<b>2️⃣ تسجيل الدخول في Samurai</b>\n"
+            ."• افتح تطبيق Samurai وسجّل دخولك ككابتن عادي\n"
+            ."• MiniBot يستخدم نفس الجلسة — لا تسجيل منفصل\n\n"
+            ."<b>3️⃣ تفعيل خدمة MiniBot (مرة واحدة)</b>\n"
+            ."• الإعدادات → إمكانية الوصول (Accessibility)\n"
+            ."• فعّل خدمة <b>MiniBot</b>\n"
+            ."• ضروري لاختصار <b>Vol↑</b>\n\n"
+            ."<b>4️⃣ تفعيل الاشتراك</b>\n"
+            ."• داخل Samurai اضغط <b>Vol↑</b> → شاشة الاشتراك\n"
+            ."• انسخ <b>معرف الجهاز / Device ID</b>\n"
+            ."• اشترِ من هذا البوت (▶️ بدء) وأرسل المعرف + اختر المدة\n"
+            ."• الصق <b>مفتاح التفعيل</b> في شاشة الاشتراك → <b>تسجيل الدخول - LOGIN</b>\n\n"
+            ."<b>5️⃣ لوحة البوت</b>\n"
+            ."• بعد التفعيل: <b>Vol↑</b> يفتح لوحة <b>Wellz pro 🇸🇩</b>\n"
+            ."• أدخل كود المنطقة (مثل <code>RUH-FLH</code>) → <b>SAVE</b>\n"
+            ."• اضبط أوقات الشفت → <b>SAVE</b> لكل صف\n"
+            ."• فعّل <b>FAST</b> / <b>DUAL</b> حسب حاجتك\n\n"
+            ."<b>6️⃣ تشغيل وإيقاف الحجز</b>\n"
+            ."• زر <b>STATE: ON/OFF</b> لتشغيل أو إيقاف البوت\n"
+            ."• <b>Vol↓</b> = ضبط سرعة التمرير (اختياري)\n"
+            ."• <b>CLOSE</b> = إغلاق اللوحة\n\n"
+            ."<b>7️⃣ انتهاء الاشتراك</b>\n"
+            ."• عند انتهاء الاشتراك يتوقف البوت تلقائياً\n"
+            ."• تظهر شاشة الاشتراك مجدداً للتجديد\n\n"
+            ."⚠️ <b>ملاحظات</b>\n"
+            ."• يجب أن تكون داخل تطبيق Samurai عند استخدام Vol↑\n"
+            ."• تأكد أن <b>showBookShifts</b> مفعّل في حسابك\n\n"
             .'ℹ️ أكواد المناطق: اضغط <b>📍 أكواد المناطق</b> من الأزرار أدناه.';
     }
 
     private function howToRunVideoCaption(): string
     {
-        return "📖 <b>طريقة تشغيل WellzPro</b>\n\n"
+        return "📖 <b>طريقة تشغيل Wellz Pro MiniBot</b>\n\n"
             ."🎬 شاهد الفيديو — الخطوات الكاملة في الرسالة التالية ⬇️";
     }
 
@@ -1127,21 +1190,7 @@ final class WellzTelegramBot
 
     private function sendHowToRunGuide(int $chatId): void
     {
-        $text = $this->howToRunGuideText();
-        if ($this->hasHowToRunVideo() && $this->sendHowToRunVideo($chatId, $text)) {
-            return;
-        }
-
-        if ($this->hasHowToRunVideo()) {
-            $this->send(
-                $chatId,
-                "⚠️ تعذّر إرسال الفيديو — الخطوات نصاً:\n\n".$text
-            );
-
-            return;
-        }
-
-        $this->send($chatId, $text);
+        $this->send($chatId, $this->howToRunGuideText());
     }
 
     private function sendHowToRunVideo(int $chatId, string $fullGuideText): bool
