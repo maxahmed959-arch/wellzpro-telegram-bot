@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-08-no-device-id';
+    private const BOT_BUILD = '2026-06-08-apk-fast-dispatch';
 
     public function __construct(array $config)
     {
@@ -628,7 +628,8 @@ final class WellzTelegramBot
                 'text' => 'جارٍ إرسال الملف…',
             ]);
             if ($chatId > 0) {
-                $this->sendApkVariant($chatId, $variantKey);
+                $this->send($chatId, '⏳ <b>جارٍ إرسال الملف…</b> انتظر قليلاً.');
+                $this->dispatchApkSend($chatId, $variantKey);
             }
 
             return;
@@ -942,6 +943,36 @@ final class WellzTelegramBot
         return $base.'/'.ltrim($filename, '/');
     }
 
+    /** يُستدعى من scripts/send-apk.php في الخلفية. */
+    public function deliverApkVariant(int $chatId, string $variantKey): void
+    {
+        $this->sendApkVariant($chatId, $variantKey);
+    }
+
+    private function dispatchApkSend(int $chatId, string $variantKey): void
+    {
+        if (PHP_SAPI === 'cli') {
+            $this->sendApkVariant($chatId, $variantKey);
+
+            return;
+        }
+
+        $script = __DIR__.'/scripts/send-apk.php';
+        if (! is_file($script)) {
+            $this->sendApkVariant($chatId, $variantKey);
+
+            return;
+        }
+
+        $php = PHP_BINARY;
+        $cmd = escapeshellarg($php).' '.escapeshellarg($script).' '.$chatId.' '.escapeshellarg($variantKey);
+        if (PHP_OS_FAMILY === 'Windows') {
+            pclose(popen('start /B "" '.$cmd, 'r'));
+        } else {
+            exec($cmd.' > /dev/null 2>&1 &');
+        }
+    }
+
     private function sendApkVariant(int $chatId, string $variantKey): void
     {
         $variant = $this->apkVariantByKey($variantKey);
@@ -955,6 +986,17 @@ final class WellzTelegramBot
         $url = $this->apkUrlForFilename($filename);
         if ($url === '') {
             $this->send($chatId, '❌ رابط التحميل غير مضبوط. تواصل مع الإدارة.');
+
+            return;
+        }
+
+        if (! $this->remoteFileExists($url)) {
+            $this->send(
+                $chatId,
+                "❌ الملف <code>{$filename}</code> غير موجود على السيرفر.\n\n"
+                ."تحميل مباشر:\n<a href=\"{$url}\">{$filename}</a>\n\n"
+                .'تأكد من رفع الملف في GitHub Releases.'
+            );
 
             return;
         }
@@ -983,22 +1025,6 @@ final class WellzTelegramBot
     /** يرسل APK كملف داخل Telegram (بدون فتح GitHub). */
     private function sendApkDocument(int $chatId, string $url, string $filename, string $caption, string $markup): bool
     {
-        $local = $this->fetchUrlToTempFile($url);
-        if ($local !== null) {
-            $payload = [
-                'chat_id' => $chatId,
-                'document' => new CURLFile($local, 'application/vnd.android.package-archive', $filename),
-                'caption' => $caption,
-                'parse_mode' => 'HTML',
-                'reply_markup' => $markup,
-            ];
-            $json = $this->apiRequest('sendDocument', $payload, true, 300);
-            @unlink($local);
-            if (is_array($json)) {
-                return true;
-            }
-        }
-
         $payload = [
             'chat_id' => $chatId,
             'document' => $url,
@@ -1006,9 +1032,46 @@ final class WellzTelegramBot
             'parse_mode' => 'HTML',
             'reply_markup' => $markup,
         ];
+        $json = $this->apiRequest('sendDocument', $payload, true, 90);
+        if (is_array($json)) {
+            return true;
+        }
+
+        $local = $this->fetchUrlToTempFile($url);
+        if ($local === null) {
+            return false;
+        }
+
+        $payload = [
+            'chat_id' => $chatId,
+            'document' => new CURLFile($local, 'application/vnd.android.package-archive', $filename),
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => $markup,
+        ];
         $json = $this->apiRequest('sendDocument', $payload, true, 300);
+        @unlink($local);
 
         return is_array($json);
+    }
+
+    private function remoteFileExists(string $url): bool
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_NOBODY => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_USERAGENT => 'WellzProTelegramBot/1.0',
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return $code >= 200 && $code < 300;
     }
 
     private function fetchUrlToTempFile(string $url): ?string
