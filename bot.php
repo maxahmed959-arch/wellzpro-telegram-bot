@@ -2,7 +2,7 @@
 
 /**
  * WellzPro Telegram Bot — Samurai MiniBot edition.
- * العميل: خطط → حساب بنكي → إشعار تحويل → معرف الجهاز → مفتاح التفعيل.
+ * العميل: خطط → حساب بنكي → إشعار تحويل → مفتاح التفعيل.
  * الأدمن: Reply على رسالة الطلب → يرسل License Key للعميل.
  */
 
@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-08-bank-first-flow';
+    private const BOT_BUILD = '2026-06-08-no-device-id';
 
     public function __construct(array $config)
     {
@@ -330,33 +330,8 @@ final class WellzTelegramBot
     private function onText(int $chatId, array $from, string $text): void
     {
         $session = $this->loadSession($chatId);
-        if ($session !== null) {
-            $state = $session['state'] ?? '';
-
-            if ($state === 'awaiting_transfer') {
-                $this->send($chatId, "📸 أرسل <b>صورة إشعار التحويل</b> هنا.\n(أو اضغط ❌ إلغاء)");
-                return;
-            }
-
-            if ($state === 'waiting_device_id') {
-                $this->send($chatId, "📱 أرسل <b>معرف الجهاز / Device ID</b>\n(من شاشة الاشتراك — Vol↑ داخل Samurai ثم انسخ المعرف).");
-                return;
-            }
-        }
-
-        if ($session === null) {
-            return;
-        }
-
-        $state = $session['state'] ?? '';
-
-        if ($state === 'waiting_device_id') {
-            $deviceId = $this->normalizeDeviceId($text);
-            if ($deviceId === '') {
-                $this->send($chatId, "❌ معرف الجهاز غير صالح.\nأدخل <b>8 أحرف</b> على الأقل (من شاشة الاشتراك — Vol↑).");
-                return;
-            }
-            $this->finalizeOrderWithDeviceId($chatId, $from, $session, $deviceId);
+        if ($session !== null && ($session['state'] ?? '') === 'awaiting_transfer') {
+            $this->send($chatId, "📸 أرسل <b>صورة إشعار التحويل</b> هنا.\n(أو اضغط ❌ إلغاء)");
         }
     }
 
@@ -372,6 +347,15 @@ final class WellzTelegramBot
             ."رقم الحساب: <code>{$bank}</code>{$holderLine}";
     }
 
+    private function formatOrderSummary(array $order): string
+    {
+        $orderId = (string) ($order['id'] ?? '');
+
+        return "📋 <b>ملخص الطلب</b> — <code>{$orderId}</code>\n"
+            .'📦 الخطة: <b>'.($order['plan_label'] ?? '')."</b>\n"
+            .'💰 المبلغ: <b>'.($order['price'] ?? 0)." ريال</b>\n";
+    }
+
     private function createPendingOrder(int $chatId, array $from, string $planKey, array $plan): string
     {
         $orderId = 'ord_'.bin2hex(random_bytes(4));
@@ -383,7 +367,6 @@ final class WellzTelegramBot
             'plan' => $planKey,
             'plan_label' => $plan['label'],
             'price' => (int) $plan['price'],
-            'device_id' => null,
             'status' => 'awaiting_transfer',
             'created_at' => date('c'),
         ];
@@ -393,55 +376,6 @@ final class WellzTelegramBot
         );
 
         return $orderId;
-    }
-
-    private function finalizeOrderWithDeviceId(int $chatId, array $from, array $session, string $deviceId): void
-    {
-        $orderId = (string) ($session['order_id'] ?? '');
-        $orderPath = $this->dataDir.'/orders/'.$orderId.'.json';
-        if ($orderId === '' || ! is_file($orderPath)) {
-            $this->send($chatId, '❌ تعذّر إكمال الطلب. أرسل /start للبدء من جديد.');
-            $this->clearSession($chatId);
-            return;
-        }
-
-        $order = json_decode(file_get_contents($orderPath), true);
-        if (! is_array($order) || ($order['status'] ?? '') !== 'awaiting_device_id') {
-            $this->send($chatId, '❌ تعذّر إكمال الطلب. أرسل /start للبدء من جديد.');
-            $this->clearSession($chatId);
-            return;
-        }
-
-        $order['device_id'] = $deviceId;
-        $order['status'] = 'awaiting_admin';
-        $order['device_at'] = date('c');
-        file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-
-        $this->clearSession($chatId);
-
-        $this->send(
-            $chatId,
-            "✅ <b>تم استلام طلبك بالكامل</b>\n\n"
-            ."طلبك <code>{$orderId}</code> قيد المراجعة.\n"
-            ."سيصلك <b>مفتاح التفعيل License Key</b> بعد التأكيد.\n\n"
-            .'⏳ <b>انتظر الرد من الإدارة في هذه المحادثة.</b>'
-        );
-
-        $proofMessage = [
-            'chat' => ['id' => (int) ($order['proof_chat_id'] ?? $chatId)],
-            'message_id' => (int) ($order['proof_message_id'] ?? 0),
-        ];
-        $this->notifyAdmins($order, $proofMessage);
-    }
-
-    private function normalizeDeviceId(string $text): string
-    {
-        $t = strtoupper(preg_replace('/[\s\-]+/', '', trim($text)) ?? '');
-        if (! preg_match('/^[A-F0-9]{8,64}$/', $t)) {
-            return '';
-        }
-
-        return $t;
     }
 
     private function onTransferProof(int $chatId, array $from, array $message): void
@@ -474,24 +408,25 @@ final class WellzTelegramBot
             return;
         }
 
-        $order['status'] = 'awaiting_device_id';
+        $order['status'] = 'awaiting_admin';
         $order['proof_file_id'] = $fileId;
         $order['proof_at'] = date('c');
         $order['proof_chat_id'] = $chatId;
         $order['proof_message_id'] = (int) ($message['message_id'] ?? 0);
         file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
-        $this->saveSession($chatId, [
-            'state' => 'waiting_device_id',
-            'order_id' => $orderId,
-        ]);
+        $this->clearSession($chatId);
 
         $this->send(
             $chatId,
             "✅ <b>تم استلام إشعار التحويل</b>\n\n"
-            ."📱 الآن أرسل <b>معرف الجهاز / Device ID</b>\n"
-            ."(من شاشة الاشتراك — اضغط <b>Vol↑</b> داخل Samurai ثم انسخ المعرف):"
+            .$this->formatOrderSummary($order)."\n"
+            ."طلبك قيد المراجعة.\n"
+            ."سيصلك <b>مفتاح التفعيل License Key</b> بعد التأكيد.\n\n"
+            .'⏳ <b>انتظر الرد من الإدارة في هذه المحادثة.</b>'
         );
+
+        $this->notifyAdmins($order, $message);
     }
 
     private function notifyAdmins(array $order, array $customerMessage): void
@@ -502,19 +437,16 @@ final class WellzTelegramBot
             return;
         }
 
-        $bank = (string) ($this->config['bank_account'] ?? '');
-        $bankName = (string) ($this->config['bank_name'] ?? 'urpay');
         $name = trim((string) ($order['first_name'] ?? ''));
         $nameLine = $name !== '' ? $name : 'عميل';
+        $username = trim((string) ($order['username'] ?? ''));
+        $userLine = $username !== '' ? "\n🔗 @{$username}" : '';
         $fromChatId = (int) ($customerMessage['chat']['id'] ?? 0);
         $proofMsgId = (int) ($customerMessage['message_id'] ?? 0);
 
-        $text = "🆕 <b>طلب جديد</b> <code>{$order['id']}</code>\n\n"
-            ."👤 {$nameLine}\n"
-            .'📦 '.($order['plan_label'] ?? '')."\n"
-            .'💰 <b>'.($order['price'] ?? 0)." ر.س</b>\n"
-            .'📱 <code>'.($order['device_id'] ?? $order['iqama_id'] ?? '')."</code>\n"
-            ."🏦 {$bankName}: <code>{$bank}</code>\n\n"
+        $text = "🆕 <b>طلب جديد</b>\n\n"
+            ."👤 {$nameLine}{$userLine}\n"
+            .$this->formatOrderSummary($order)."\n"
             ."📸 إشعار التحويل مرفق أعلاه.\n\n"
             ."⬇️ <b>للرد على العميل:</b>\n"
             ."اضغط <b>رد Reply</b> على هذه الرسالة\n"
@@ -534,7 +466,7 @@ final class WellzTelegramBot
             }
             $msgId = $this->sendAndGetMessageId($adminChat, $text, null, false);
             if ($msgId !== null) {
-                $this->saveNotifyMap($adminChat, $msgId, (int) $order['chat_id'], (string) $order['id']);
+                $this->saveNotifyMap($adminChat, $msgId, (int) ($order['chat_id'] ?? 0), (string) ($order['id'] ?? ''));
             }
         }
     }
@@ -1180,8 +1112,7 @@ final class WellzTelegramBot
             ."• اختر الخطة من هذا البوت (▶️ بدء)\n"
             ."• حوّل المبلغ إلى الحساب البنكي الظاهر\n"
             ."• أرسل <b>صورة إشعار التحويل</b> للبوت\n"
-            ."• ثم أرسل <b>معرف الجهاز / Device ID</b> (Vol↑ داخل Samurai)\n"
-            ."• الصق <b>مفتاح التفعيل</b> في شاشة الاشتراك → <b>تسجيل الدخول - LOGIN</b>\n\n"
+            ."• الصق <b>مفتاح التفعيل</b> في شاشة الاشتراك (Vol↑) → <b>تسجيل الدخول - LOGIN</b>\n\n"
             ."<b>5️⃣ لوحة البوت</b>\n"
             ."• بعد التفعيل: <b>Vol↑</b> يفتح لوحة <b>Wellz pro 🇸🇩</b>\n"
             ."• أدخل كود المنطقة (مثل <code>RUH-FLH</code>) → <b>SAVE</b>\n"
@@ -1345,7 +1276,7 @@ final class WellzTelegramBot
             return;
         }
         $order = json_decode(file_get_contents($orderPath), true);
-        if (! is_array($order) || ! in_array($order['status'] ?? '', ['awaiting_transfer', 'awaiting_device_id', 'awaiting_admin'], true)) {
+        if (! is_array($order) || ! in_array($order['status'] ?? '', ['awaiting_transfer', 'awaiting_admin'], true)) {
             return;
         }
         $order['status'] = 'cancelled';
