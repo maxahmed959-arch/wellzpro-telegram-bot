@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-mkdir -p data/sessions data/orders data/admins data/notify_map
+mkdir -p data/sessions data/orders data/admins data/notify_map data/apk_queue data/apk_locks
 
 # Render يضبط PORT دائماً — لا نعتمد فقط على RENDER_EXTERNAL_URL (قد يتأخر)
 use_web=0
