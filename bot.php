@@ -22,14 +22,14 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-08-apk-fast-dispatch';
+    private const BOT_BUILD = '2026-06-08-apk-queue';
 
     public function __construct(array $config)
     {
         $this->config = $config;
         $this->token = (string) ($config['bot_token'] ?? '');
         $this->dataDir = __DIR__.'/data';
-        foreach (['sessions', 'orders', 'notify_map', 'admins'] as $sub) {
+        foreach (['sessions', 'orders', 'notify_map', 'admins', 'apk_queue', 'apk_locks'] as $sub) {
             $dir = $this->dataDir.'/'.$sub;
             if (! is_dir($dir)) {
                 mkdir($dir, 0755, true);
@@ -628,7 +628,6 @@ final class WellzTelegramBot
                 'text' => 'جارٍ إرسال الملف…',
             ]);
             if ($chatId > 0) {
-                $this->send($chatId, '⏳ <b>جارٍ إرسال الملف…</b> انتظر قليلاً.');
                 $this->dispatchApkSend($chatId, $variantKey);
             }
 
@@ -943,29 +942,143 @@ final class WellzTelegramBot
         return $base.'/'.ltrim($filename, '/');
     }
 
-    /** يُستدعى من scripts/send-apk.php في الخلفية. */
-    public function deliverApkVariant(int $chatId, string $variantKey): void
+    /** يُستدعى من scripts/send-apk.php — يعالج طابور الإرسال بالتسلسل. */
+    public function processApkQueue(int $chatId): void
     {
-        $this->sendApkVariant($chatId, $variantKey);
+        if ($chatId <= 0) {
+            return;
+        }
+
+        $lockPath = $this->dataDir.'/apk_locks/'.$chatId.'.lock';
+        $fp = fopen($lockPath, 'c+');
+        if ($fp === false || ! flock($fp, LOCK_EX | LOCK_NB)) {
+            if (is_resource($fp)) {
+                fclose($fp);
+            }
+
+            return;
+        }
+
+        try {
+            $idleRounds = 0;
+            while (true) {
+                $variantKey = $this->dequeueApkSend($chatId);
+                if ($variantKey === null) {
+                    if ($this->apkQueueCount($chatId) > 0) {
+                        continue;
+                    }
+                    $idleRounds++;
+                    if ($idleRounds >= 2) {
+                        break;
+                    }
+                    usleep(400000);
+
+                    continue;
+                }
+                $idleRounds = 0;
+                $this->sendApkVariant($chatId, $variantKey);
+                sleep(3);
+            }
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+            @unlink($lockPath);
+        }
+    }
+
+    private function apkQueuePath(int $chatId): string
+    {
+        return $this->dataDir.'/apk_queue/'.$chatId.'.json';
+    }
+
+    private function enqueueApkSend(int $chatId, string $variantKey): void
+    {
+        $path = $this->apkQueuePath($chatId);
+        $queue = [];
+        if (is_file($path)) {
+            $decoded = json_decode((string) file_get_contents($path), true);
+            if (is_array($decoded)) {
+                $queue = $decoded;
+            }
+        }
+        if (! in_array($variantKey, $queue, true)) {
+            $queue[] = $variantKey;
+        }
+        file_put_contents($path, json_encode(array_values($queue), JSON_UNESCAPED_UNICODE));
+    }
+
+    private function apkQueueCount(int $chatId): int
+    {
+        $path = $this->apkQueuePath($chatId);
+        if (! is_file($path)) {
+            return 0;
+        }
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return is_array($decoded) ? count($decoded) : 0;
+    }
+
+    private function dequeueApkSend(int $chatId): ?string
+    {
+        $path = $this->apkQueuePath($chatId);
+        if (! is_file($path)) {
+            return null;
+        }
+        $queue = json_decode((string) file_get_contents($path), true);
+        if (! is_array($queue) || $queue === []) {
+            @unlink($path);
+
+            return null;
+        }
+        $variantKey = (string) array_shift($queue);
+        if ($queue === []) {
+            @unlink($path);
+        } else {
+            file_put_contents($path, json_encode(array_values($queue), JSON_UNESCAPED_UNICODE));
+        }
+
+        return $variantKey !== '' ? $variantKey : null;
+    }
+
+    private function isApkWorkerRunning(int $chatId): bool
+    {
+        $lockPath = $this->dataDir.'/apk_locks/'.$chatId.'.lock';
+        $fp = fopen($lockPath, 'c+');
+        if ($fp === false) {
+            return false;
+        }
+        $busy = ! flock($fp, LOCK_EX | LOCK_NB);
+        if (! $busy) {
+            flock($fp, LOCK_UN);
+        }
+        fclose($fp);
+
+        return $busy;
     }
 
     private function dispatchApkSend(int $chatId, string $variantKey): void
     {
-        if (PHP_SAPI === 'cli') {
-            $this->sendApkVariant($chatId, $variantKey);
+        $this->enqueueApkSend($chatId, $variantKey);
 
+        if (PHP_SAPI === 'cli') {
+            $this->processApkQueue($chatId);
+
+            return;
+        }
+
+        if ($this->isApkWorkerRunning($chatId)) {
             return;
         }
 
         $script = __DIR__.'/scripts/send-apk.php';
         if (! is_file($script)) {
-            $this->sendApkVariant($chatId, $variantKey);
+            $this->processApkQueue($chatId);
 
             return;
         }
 
         $php = PHP_BINARY;
-        $cmd = escapeshellarg($php).' '.escapeshellarg($script).' '.$chatId.' '.escapeshellarg($variantKey);
+        $cmd = escapeshellarg($php).' '.escapeshellarg($script).' '.$chatId;
         if (PHP_OS_FAMILY === 'Windows') {
             pclose(popen('start /B "" '.$cmd, 'r'));
         } else {
@@ -1032,9 +1145,14 @@ final class WellzTelegramBot
             'parse_mode' => 'HTML',
             'reply_markup' => $markup,
         ];
-        $json = $this->apiRequest('sendDocument', $payload, true, 90);
-        if (is_array($json)) {
-            return true;
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $json = $this->apiRequest('sendDocument', $payload, true, 120);
+            if (is_array($json)) {
+                return true;
+            }
+            if ($attempt === 0) {
+                sleep(2);
+            }
         }
 
         $local = $this->fetchUrlToTempFile($url);
