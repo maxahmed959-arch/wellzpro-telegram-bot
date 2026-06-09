@@ -2,7 +2,7 @@
 
 /**
  * WellzPro Telegram Bot — Samurai MiniBot edition.
- * العميل: خطط + معرف الجهاز + تحويل urpay + إيصال → يستلم مفتاح التفعيل.
+ * العميل: خطط → حساب بنكي → إشعار تحويل → معرف الجهاز → مفتاح التفعيل.
  * الأدمن: Reply على رسالة الطلب → يرسل License Key للعميل.
  */
 
@@ -22,7 +22,7 @@ final class WellzTelegramBot
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-07-apk-variants-menu';
+    private const BOT_BUILD = '2026-06-08-bank-first-flow';
 
     public function __construct(array $config)
     {
@@ -334,7 +334,12 @@ final class WellzTelegramBot
             $state = $session['state'] ?? '';
 
             if ($state === 'awaiting_transfer') {
-                $this->send($chatId, '📸 أرسل <b>صورة إشعار التحويل</b> هنا.\n(أو اضغط ❌ إلغاء)');
+                $this->send($chatId, "📸 أرسل <b>صورة إشعار التحويل</b> هنا.\n(أو اضغط ❌ إلغاء)");
+                return;
+            }
+
+            if ($state === 'waiting_device_id') {
+                $this->send($chatId, "📱 أرسل <b>معرف الجهاز / Device ID</b>\n(من شاشة الاشتراك — Vol↑ داخل Samurai ثم انسخ المعرف).");
                 return;
             }
         }
@@ -351,9 +356,82 @@ final class WellzTelegramBot
                 $this->send($chatId, "❌ معرف الجهاز غير صالح.\nأدخل <b>8 أحرف</b> على الأقل (من شاشة الاشتراك — Vol↑).");
                 return;
             }
-            $session['device_id'] = $deviceId;
-            $this->submitOrderAndShowBank($chatId, $from, $session);
+            $this->finalizeOrderWithDeviceId($chatId, $from, $session, $deviceId);
         }
+    }
+
+    private function formatBankBlock(): string
+    {
+        $bank = (string) ($this->config['bank_account'] ?? '');
+        $bankName = (string) ($this->config['bank_name'] ?? 'urpay');
+        $holder = trim((string) ($this->config['bank_holder'] ?? ''));
+        $holderLine = $holder !== '' ? "\n👤 اسم المستفيد: <b>{$holder}</b>" : '';
+
+        return "🏦 <b>التحويل البنكي</b>\n"
+            ."البنك: <b>{$bankName}</b>\n"
+            ."رقم الحساب: <code>{$bank}</code>{$holderLine}";
+    }
+
+    private function createPendingOrder(int $chatId, array $from, string $planKey, array $plan): string
+    {
+        $orderId = 'ord_'.bin2hex(random_bytes(4));
+        $order = [
+            'id' => $orderId,
+            'chat_id' => $chatId,
+            'username' => $from['username'] ?? null,
+            'first_name' => trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')),
+            'plan' => $planKey,
+            'plan_label' => $plan['label'],
+            'price' => (int) $plan['price'],
+            'device_id' => null,
+            'status' => 'awaiting_transfer',
+            'created_at' => date('c'),
+        ];
+        file_put_contents(
+            $this->dataDir.'/orders/'.$orderId.'.json',
+            json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        return $orderId;
+    }
+
+    private function finalizeOrderWithDeviceId(int $chatId, array $from, array $session, string $deviceId): void
+    {
+        $orderId = (string) ($session['order_id'] ?? '');
+        $orderPath = $this->dataDir.'/orders/'.$orderId.'.json';
+        if ($orderId === '' || ! is_file($orderPath)) {
+            $this->send($chatId, '❌ تعذّر إكمال الطلب. أرسل /start للبدء من جديد.');
+            $this->clearSession($chatId);
+            return;
+        }
+
+        $order = json_decode(file_get_contents($orderPath), true);
+        if (! is_array($order) || ($order['status'] ?? '') !== 'awaiting_device_id') {
+            $this->send($chatId, '❌ تعذّر إكمال الطلب. أرسل /start للبدء من جديد.');
+            $this->clearSession($chatId);
+            return;
+        }
+
+        $order['device_id'] = $deviceId;
+        $order['status'] = 'awaiting_admin';
+        $order['device_at'] = date('c');
+        file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
+        $this->clearSession($chatId);
+
+        $this->send(
+            $chatId,
+            "✅ <b>تم استلام طلبك بالكامل</b>\n\n"
+            ."طلبك <code>{$orderId}</code> قيد المراجعة.\n"
+            ."سيصلك <b>مفتاح التفعيل License Key</b> بعد التأكيد.\n\n"
+            .'⏳ <b>انتظر الرد من الإدارة في هذه المحادثة.</b>'
+        );
+
+        $proofMessage = [
+            'chat' => ['id' => (int) ($order['proof_chat_id'] ?? $chatId)],
+            'message_id' => (int) ($order['proof_message_id'] ?? 0),
+        ];
+        $this->notifyAdmins($order, $proofMessage);
     }
 
     private function normalizeDeviceId(string $text): string
@@ -364,49 +442,6 @@ final class WellzTelegramBot
         }
 
         return $t;
-    }
-
-    private function submitOrderAndShowBank(int $chatId, array $from, array $session): void
-    {
-        $orderId = 'ord_'.bin2hex(random_bytes(4));
-        $order = [
-            'id' => $orderId,
-            'chat_id' => $chatId,
-            'username' => $from['username'] ?? null,
-            'first_name' => trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')),
-            'plan' => $session['plan'],
-            'plan_label' => $session['plan_label'],
-            'price' => $session['price'],
-            'device_id' => $session['device_id'],
-            'status' => 'awaiting_transfer',
-            'created_at' => date('c'),
-        ];
-        file_put_contents(
-            $this->dataDir.'/orders/'.$orderId.'.json',
-            json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-        );
-
-        $this->saveSession($chatId, [
-            'state' => 'awaiting_transfer',
-            'order_id' => $orderId,
-        ]);
-
-        $bank = (string) ($this->config['bank_account'] ?? '');
-        $bankName = (string) ($this->config['bank_name'] ?? 'urpay');
-        $holder = trim((string) ($this->config['bank_holder'] ?? ''));
-        $holderLine = $holder !== '' ? "\nاسم المستفيد: <b>{$holder}</b>" : '';
-
-        $this->send(
-            $chatId,
-            "📋 <b>ملخص الطلب</b> — <code>{$orderId}</code>\n\n"
-            .'📦 الخطة: <b>'.($session['plan_label'] ?? '')."</b>\n"
-            .'💰 المبلغ: <b>'.($session['price'] ?? 0)." ريال</b>\n"
-            .'📱 Device ID: <code>'.($session['device_id'] ?? '')."</code>\n\n"
-            ."🏦 <b>التحويل البنكي</b>\n"
-            ."<b>{$bankName}</b> = <code>{$bank}</code>{$holderLine}\n\n"
-            ."📸 بعد التحويل، <b>أرسل صورة إشعار التحويل</b> هنا.\n"
-            .'(أو ❌ إلغاء)'
-        );
     }
 
     private function onTransferProof(int $chatId, array $from, array $message): void
@@ -439,22 +474,24 @@ final class WellzTelegramBot
             return;
         }
 
-        $order['status'] = 'awaiting_admin';
+        $order['status'] = 'awaiting_device_id';
         $order['proof_file_id'] = $fileId;
         $order['proof_at'] = date('c');
+        $order['proof_chat_id'] = $chatId;
+        $order['proof_message_id'] = (int) ($message['message_id'] ?? 0);
         file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
-        $this->clearSession($chatId);
+        $this->saveSession($chatId, [
+            'state' => 'waiting_device_id',
+            'order_id' => $orderId,
+        ]);
 
         $this->send(
             $chatId,
             "✅ <b>تم استلام إشعار التحويل</b>\n\n"
-            ."طلبك <code>{$orderId}</code> قيد المراجعة.\n"
-            ."سيصلك <b>مفتاح التفعيل License Key</b> بعد التأكيد.\n\n"
-            .'⏳ <b>انتظر الرد من الإدارة في هذه المحادثة.</b>'
+            ."📱 الآن أرسل <b>معرف الجهاز / Device ID</b>\n"
+            ."(من شاشة الاشتراك — اضغط <b>Vol↑</b> داخل Samurai ثم انسخ المعرف):"
         );
-
-        $this->notifyAdmins($order, $message);
     }
 
     private function notifyAdmins(array $order, array $customerMessage): void
@@ -679,17 +716,21 @@ final class WellzTelegramBot
             return;
         }
         $plan = $plans[$planKey];
+        $orderId = $this->createPendingOrder($chatId, $from, $planKey, $plan);
         $this->saveSession($chatId, [
-            'state' => 'waiting_device_id',
+            'state' => 'awaiting_transfer',
+            'order_id' => $orderId,
             'plan' => $planKey,
             'plan_label' => $plan['label'],
             'price' => (int) $plan['price'],
         ]);
         $this->send(
             $chatId,
-            "✅ <b>{$plan['label']}</b>\n💰 <b>{$plan['price']} ريال</b>\n\n"
-            ."📱 <b>معرف الجهاز / Device ID</b>\n"
-            ."(من شاشة الاشتراك — اضغط <b>Vol↑</b> داخل Samurai ثم انسخ المعرف):"
+            "✅ <b>{$plan['label']}</b>\n"
+            ."💰 المبلغ: <b>{$plan['price']} ريال</b>\n\n"
+            .$this->formatBankBlock()."\n\n"
+            ."📸 بعد التحويل، <b>أرسل صورة إشعار التحويل</b> هنا.\n"
+            .'(أو ❌ إلغاء)'
         );
     }
 
@@ -1136,9 +1177,10 @@ final class WellzTelegramBot
             ."• فعّل خدمة <b>MiniBot</b>\n"
             ."• ضروري لاختصار <b>Vol↑</b>\n\n"
             ."<b>4️⃣ تفعيل الاشتراك</b>\n"
-            ."• داخل Samurai اضغط <b>Vol↑</b> → شاشة الاشتراك\n"
-            ."• انسخ <b>معرف الجهاز / Device ID</b>\n"
-            ."• اشترِ من هذا البوت (▶️ بدء) وأرسل المعرف + اختر المدة\n"
+            ."• اختر الخطة من هذا البوت (▶️ بدء)\n"
+            ."• حوّل المبلغ إلى الحساب البنكي الظاهر\n"
+            ."• أرسل <b>صورة إشعار التحويل</b> للبوت\n"
+            ."• ثم أرسل <b>معرف الجهاز / Device ID</b> (Vol↑ داخل Samurai)\n"
             ."• الصق <b>مفتاح التفعيل</b> في شاشة الاشتراك → <b>تسجيل الدخول - LOGIN</b>\n\n"
             ."<b>5️⃣ لوحة البوت</b>\n"
             ."• بعد التفعيل: <b>Vol↑</b> يفتح لوحة <b>Wellz pro 🇸🇩</b>\n"
@@ -1303,7 +1345,7 @@ final class WellzTelegramBot
             return;
         }
         $order = json_decode(file_get_contents($orderPath), true);
-        if (! is_array($order) || ! in_array($order['status'] ?? '', ['awaiting_transfer', 'awaiting_admin'], true)) {
+        if (! is_array($order) || ! in_array($order['status'] ?? '', ['awaiting_transfer', 'awaiting_device_id', 'awaiting_admin'], true)) {
             return;
         }
         $order['status'] = 'cancelled';
