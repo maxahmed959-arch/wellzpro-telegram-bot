@@ -29,7 +29,7 @@ final class WellzTelegramBot
         $this->config = $config;
         $this->token = (string) ($config['bot_token'] ?? '');
         $this->dataDir = __DIR__.'/data';
-        foreach (['sessions', 'orders', 'notify_map', 'admins', 'apk_queue', 'apk_locks'] as $sub) {
+        foreach (['sessions', 'orders', 'notify_map', 'admins', 'apk_queue', 'apk_locks', 'codes'] as $sub) {
             $dir = $this->dataDir.'/'.$sub;
             if (! is_dir($dir)) {
                 mkdir($dir, 0755, true);
@@ -297,6 +297,16 @@ final class WellzTelegramBot
             return true;
         }
 
+        if ($this->isAdmin($fromId) && in_array($cmd, ['/gen', '/generate'], true)) {
+            $this->handleGenerateCodesCommand($chatId, $arg);
+            return true;
+        }
+
+        if ($this->isAdmin($fromId) && in_array($cmd, ['/codes', '/stock'], true)) {
+            $this->sendCodesStock($chatId);
+            return true;
+        }
+
         if ($cmd === '/cancel' || $cmd === '/الغاء') {
             $this->cancelPendingOrder($chatId);
             $this->clearSession($chatId);
@@ -312,7 +322,7 @@ final class WellzTelegramBot
 
         if ($cmd === '/help') {
             if ($this->isAdmin($fromId)) {
-                $this->send($chatId, "/orders — طلبات معلقة\n/admin — تسجيل أدمن\n/videoid — معرّف فيديو طريقة التشغيل\nReply على «طلب جديد» → أرسل License Key للعميل", null, false);
+                $this->send($chatId, "/orders — طلبات معلقة\n/gen 5 — توليد 5 أكواد\n/codes — عرض مخزون الأكواد\n/admin — تسجيل أدمن\n/videoid — معرّف فيديو طريقة التشغيل\nReply على «طلب جديد» → أرسل License Key أو /sendcode لتسليم كود تلقائي", null, false);
             } else {
                 $this->send($chatId, '/start — خطط الاشتراك\n/cancel — إلغاء');
             }
@@ -517,6 +527,16 @@ final class WellzTelegramBot
             return;
         }
 
+        $command = $this->commandName($adminText);
+        if (in_array($command, ['/sendcode', '/code', '/deliver'], true)) {
+            $generated = $this->assignGeneratedCodeToOrder($orderId);
+            if ($generated === null) {
+                $this->send($adminChatId, "❌ لا توجد أكواد متاحة في المخزون.\nاستخدم /gen 5 مثلاً ثم أعد المحاولة.", null, false);
+                return;
+            }
+            $adminText = $generated;
+        }
+
         $customerMsg = "🎉 <b>تم تفعيل طلبك</b>\n<code>{$orderId}</code>\n\n"
             ."🔑 <b>مفتاح التفعيل:</b>\n<code>{$adminText}</code>\n\n"
             ."📲 افتح Samurai → Vol↑ → الصق المفتاح → LOGIN";
@@ -528,6 +548,7 @@ final class WellzTelegramBot
             if (is_array($order)) {
                 $order['status'] = 'delivered';
                 $order['delivered_at'] = date('c');
+                $order['license_key'] = $adminText;
                 file_put_contents($orderPath, json_encode($order, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
             }
         }
@@ -594,6 +615,149 @@ final class WellzTelegramBot
         }
         $lines[] = "\nReply على رسالة الطلب في الأعلى لإرسال الكود للعميل.";
         $this->send($adminChatId, implode("\n", $lines), null, false);
+    }
+
+    private function handleGenerateCodesCommand(int $chatId, string $arg): void
+    {
+        $count = (int) preg_replace('/\D+/u', '', $arg);
+        if ($count <= 0) {
+            $count = 1;
+        }
+        if ($count > 100) {
+            $count = 100;
+        }
+
+        $generated = [];
+        for ($i = 0; $i < $count; $i++) {
+            $generated[] = $this->storeGeneratedCode($this->generateLicenseCode());
+        }
+
+        $lines = [
+            '✅ <b>تم توليد الأكواد</b>',
+            'العدد: <b>'.count($generated).'</b>',
+            '',
+        ];
+
+        foreach ($generated as $code) {
+            $lines[] = '• <code>'.$code.'</code>';
+        }
+
+        $lines[] = '';
+        $lines[] = 'لتسليم كود تلقائياً للعميل: Reply على الطلب وأرسل <code>/sendcode</code>';
+
+        $this->send($chatId, implode("\n", $lines), null, false);
+    }
+
+    private function sendCodesStock(int $chatId): void
+    {
+        $available = $this->availableCodes();
+        if ($available === []) {
+            $this->send($chatId, "📦 <b>مخزون الأكواد</b>\nلا توجد أكواد متاحة حالياً.\nاستخدم <code>/gen 5</code> مثلاً.", null, false);
+            return;
+        }
+
+        $lines = [
+            '📦 <b>مخزون الأكواد المتاحة</b>',
+            'العدد: <b>'.count($available).'</b>',
+            '',
+        ];
+
+        foreach (array_slice($available, 0, 20) as $code) {
+            $lines[] = '• <code>'.$code.'</code>';
+        }
+
+        if (count($available) > 20) {
+            $lines[] = '';
+            $lines[] = '... ويوجد المزيد: '.(count($available) - 20);
+        }
+
+        $this->send($chatId, implode("\n", $lines), null, false);
+    }
+
+    private function generateLicenseCode(): string
+    {
+        $prefix = preg_replace('/[^A-Z0-9]+/u', '', strtoupper((string) ($this->config['license_prefix'] ?? 'WELLZ')));
+        if ($prefix === '') {
+            $prefix = 'WELLZ';
+        }
+
+        do {
+            $code = sprintf(
+                '%s-%s-%s',
+                $prefix,
+                strtoupper(bin2hex(random_bytes(2))),
+                strtoupper(bin2hex(random_bytes(2)))
+            );
+        } while ($this->codeExists($code));
+
+        return $code;
+    }
+
+    private function codePath(string $code): string
+    {
+        return $this->dataDir.'/codes/'.preg_replace('/[^A-Z0-9\-]+/u', '_', strtoupper($code)).'.json';
+    }
+
+    private function codeExists(string $code): bool
+    {
+        return is_file($this->codePath($code));
+    }
+
+    private function storeGeneratedCode(string $code): string
+    {
+        $payload = [
+            'code' => $code,
+            'status' => 'available',
+            'created_at' => date('c'),
+        ];
+
+        file_put_contents(
+            $this->codePath($code),
+            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        );
+
+        return $code;
+    }
+
+    private function availableCodes(): array
+    {
+        $codes = [];
+        foreach (glob($this->dataDir.'/codes/*.json') ?: [] as $file) {
+            $item = json_decode((string) file_get_contents($file), true);
+            if (! is_array($item) || ($item['status'] ?? '') !== 'available') {
+                continue;
+            }
+            $code = trim((string) ($item['code'] ?? ''));
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+        sort($codes);
+
+        return $codes;
+    }
+
+    private function assignGeneratedCodeToOrder(string $orderId): ?string
+    {
+        foreach (glob($this->dataDir.'/codes/*.json') ?: [] as $file) {
+            $item = json_decode((string) file_get_contents($file), true);
+            if (! is_array($item) || ($item['status'] ?? '') !== 'available') {
+                continue;
+            }
+            $code = trim((string) ($item['code'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+
+            $item['status'] = 'assigned';
+            $item['assigned_at'] = date('c');
+            $item['order_id'] = $orderId;
+            file_put_contents($file, json_encode($item, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
+            return $code;
+        }
+
+        return null;
     }
 
     private function saveNotifyMap(int $adminChat, int $msgId, int $customerChat, string $orderId): void
