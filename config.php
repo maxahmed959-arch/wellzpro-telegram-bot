@@ -11,6 +11,7 @@ return [
     'bank_account' => getenv('TELEGRAM_BANK_ACCOUNT') ?: '0547196179',
     'bank_name' => getenv('TELEGRAM_BANK_NAME') ?: 'urpay',
     'bank_holder' => getenv('TELEGRAM_BANK_HOLDER') ?: '',
+    'license_prefix' => getenv('LICENSE_PREFIX') ?: 'WELLZ',
 
     'plans' => [
         'month' => ['label' => 'شهر (30 يوم)', 'price' => 25],
