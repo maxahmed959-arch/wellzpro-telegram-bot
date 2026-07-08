@@ -28,7 +28,7 @@ final class KeyboardBuilder
                     ['text' => '📥 تقرير CSV', 'callback_data' => 'adm:csv'],
                     ['text' => '📜 سجل التدقيق', 'callback_data' => 'adm:audit'],
                 ],
-                [['text' => '🗑 حذف / تعطيل الأكواد', 'callback_data' => 'adm:dellist']],
+                [['text' => '🗑 حذف الأكواد غير المُفعّلة', 'callback_data' => 'adm:dellist']],
                 [['text' => '↩️ رجوع للقائمة', 'callback_data' => 'adm:back']],
             ],
         ];
@@ -62,7 +62,7 @@ final class KeyboardBuilder
     }
 
     /**
-     * قائمة أكواد مع زرّي حذف وتعطيل لكل كود.
+     * قائمة أكواد — الرمز كاملاً + زر حذف واحد (🗑) لكل صف.
      *
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<string, mixed>
@@ -79,7 +79,6 @@ final class KeyboardBuilder
             $icon = $status === 'disabled' ? '⛔' : '🟡';
             $kb[] = [
                 ['text' => $icon.' '.$code, 'callback_data' => 'adm:noop'],
-                ['text' => '🚫', 'callback_data' => 'adm:off:'.$code],
                 ['text' => '🗑', 'callback_data' => 'adm:del:'.$code],
             ];
         }
