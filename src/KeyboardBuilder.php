@@ -28,6 +28,7 @@ final class KeyboardBuilder
                     ['text' => '📥 تقرير CSV', 'callback_data' => 'adm:csv'],
                     ['text' => '📜 سجل التدقيق', 'callback_data' => 'adm:audit'],
                 ],
+                [['text' => '🗑 حذف / تعطيل الأكواد', 'callback_data' => 'adm:dellist']],
                 [['text' => '↩️ رجوع للقائمة', 'callback_data' => 'adm:back']],
             ],
         ];
@@ -58,5 +59,35 @@ final class KeyboardBuilder
     public function backToPanel(): array
     {
         return ['inline_keyboard' => [[['text' => '↩️ لوحة الأدمن', 'callback_data' => 'adm:panel']]]];
+    }
+
+    /**
+     * قائمة أكواد مع زرّي حذف وتعطيل لكل كود.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, mixed>
+     */
+    public function codeActionList(array $rows): array
+    {
+        $kb = [];
+        foreach ($rows as $row) {
+            $code = (string) ($row['key'] ?? '');
+            if ($code === '') {
+                continue;
+            }
+            $status = (string) ($row['computed_status'] ?? '');
+            $icon = $status === 'disabled' ? '⛔' : '🟡';
+            $kb[] = [['text' => $icon.' '.$code, 'callback_data' => 'adm:noop']];
+            $kb[] = [
+                ['text' => '🗑 حذف', 'callback_data' => 'adm:del:'.$code],
+                ['text' => '🚫 تعطيل', 'callback_data' => 'adm:off:'.$code],
+            ];
+        }
+        $kb[] = [
+            ['text' => '🔄 تحديث', 'callback_data' => 'adm:dellist'],
+            ['text' => '↩️ لوحة الأدمن', 'callback_data' => 'adm:panel'],
+        ];
+
+        return ['inline_keyboard' => $kb];
     }
 }

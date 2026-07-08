@@ -45,6 +45,13 @@ final class AdminHandler
         }
         $action = substr($data, 4);
 
+        if (str_starts_with($action, 'del:')) {
+            return $this->doDeleteAndRefresh($chatId, $fromId, strtoupper(trim(substr($action, 4))));
+        }
+        if (str_starts_with($action, 'off:')) {
+            return $this->doDisableAndRefresh($chatId, $fromId, strtoupper(trim(substr($action, 4))));
+        }
+
         return match ($action) {
             'panel' => $this->cmdPanel($chatId, $fromId),
             'stats' => $this->cmdStats($chatId, $fromId),
@@ -52,6 +59,8 @@ final class AdminHandler
             'codes' => $this->cmdCodesStock($chatId, $fromId),
             'csv' => $this->cmdReport($chatId, $fromId),
             'audit' => $this->cmdAudit($chatId, $fromId),
+            'dellist' => $this->cmdDeleteList($chatId, $fromId),
+            'noop' => null,
             'back' => ['text' => 'اضغط ▶️ بدء أو استخدم القائمة أدناه.', 'markup' => null, 'keyboard' => true],
             default => null,
         };
@@ -193,7 +202,7 @@ final class AdminHandler
             return $this->deny();
         }
         if ($code === '') {
-            return ['text' => 'الصيغة: <code>/off WELLZ-XXXX-XXXX</code>', 'markup' => null, 'keyboard' => false];
+            return $this->cmdDeleteList($chatId, $fromId);
         }
         try {
             $ok = $this->licenses->disable($code, $fromId, $username);
@@ -210,7 +219,7 @@ final class AdminHandler
             return $this->deny();
         }
         if ($code === '') {
-            return ['text' => 'الصيغة: <code>/del WELLZ-XXXX-XXXX</code>', 'markup' => null, 'keyboard' => false];
+            return $this->cmdDeleteList($chatId, $fromId);
         }
         try {
             $ok = $this->licenses->delete($code, $fromId, $username);
@@ -219,6 +228,76 @@ final class AdminHandler
         } catch (\Throwable $e) {
             return ['text' => '❌ '.$e->getMessage(), 'markup' => null, 'keyboard' => false];
         }
+    }
+
+    /** قائمة الأكواد غير المُفعّلة مع أزرار حذف/تعطيل. */
+    private function cmdDeleteList(int $chatId, int $fromId): ?array
+    {
+        if (! $this->roles->can($fromId, 'delete') && ! $this->roles->can($fromId, 'disable')) {
+            return $this->deny();
+        }
+        if (! $this->licenses->isReady()) {
+            return ['text' => '❌ Firebase غير مضبوط.', 'markup' => null, 'keyboard' => false];
+        }
+        $rows = $this->licenses->inactiveCodes();
+        if ($rows === []) {
+            return [
+                'text' => "🗑 <b>حذف / تعطيل الأكواد</b>\n\n✅ لا توجد أكواد غير مُفعّلة حالياً.",
+                'markup' => $this->keyboards->backToPanel(),
+                'keyboard' => false,
+            ];
+        }
+
+        return [
+            'text' => "🗑 <b>الأكواد غير المُفعّلة</b> (".count($rows).")\n"
+                ."اختر إجراءً لكل كود:\n"
+                ."🗑 حذف = إزالة نهائية · 🚫 تعطيل = إيقاف",
+            'markup' => $this->keyboards->codeActionList($rows),
+            'keyboard' => false,
+        ];
+    }
+
+    private function doDeleteAndRefresh(int $chatId, int $fromId, string $code): ?array
+    {
+        if (! $this->roles->can($fromId, 'delete')) {
+            return $this->deny();
+        }
+        $note = '';
+        try {
+            $ok = $this->licenses->delete($code, $fromId, null);
+            $note = $ok ? "🗑 تم حذف <code>{$code}</code>" : "❌ الرمز غير موجود: <code>{$code}</code>";
+        } catch (\Throwable $e) {
+            $note = '❌ '.$e->getMessage();
+        }
+
+        return $this->refreshedList($chatId, $fromId, $note);
+    }
+
+    private function doDisableAndRefresh(int $chatId, int $fromId, string $code): ?array
+    {
+        if (! $this->roles->can($fromId, 'disable')) {
+            return $this->deny();
+        }
+        $note = '';
+        try {
+            $ok = $this->licenses->disable($code, $fromId, null);
+            $note = $ok ? "🚫 تم تعطيل <code>{$code}</code>" : "❌ الرمز غير موجود: <code>{$code}</code>";
+        } catch (\Throwable $e) {
+            $note = '❌ '.$e->getMessage();
+        }
+
+        return $this->refreshedList($chatId, $fromId, $note);
+    }
+
+    private function refreshedList(int $chatId, int $fromId, string $note): ?array
+    {
+        $list = $this->cmdDeleteList($chatId, $fromId);
+        if ($list === null) {
+            return ['text' => $note, 'markup' => $this->keyboards->backToPanel(), 'keyboard' => false];
+        }
+        $list['text'] = $note."\n\n".$list['text'];
+
+        return $list;
     }
 
     private function cmdAddAdmin(int $chatId, int $fromId, string $arg): ?array

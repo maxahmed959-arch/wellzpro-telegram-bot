@@ -110,6 +110,27 @@ final class LicenseManager
         return null;
     }
 
+    /**
+     * الأكواد غير المُفعّلة (لم تُربط بجهاز بعد) — قابلة للحذف أو التعطيل.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function inactiveCodes(int $limit = 30): array
+    {
+        $rows = [];
+        foreach ($this->firebase->listAllLicenses() as $row) {
+            if (trim((string) ($row['deviceId'] ?? '')) !== '') {
+                continue;
+            }
+            $rows[] = $row;
+            if (count($rows) >= $limit) {
+                break;
+            }
+        }
+
+        return $rows;
+    }
+
     /** @return list<string> */
     public function availableLocalCodes(): array
     {
