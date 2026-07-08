@@ -10,6 +10,15 @@ declare(strict_types=1);
 
 require __DIR__.'/bootstrap.php';
 
+use Wellz\AdminHandler;
+use Wellz\AuditLogger;
+use Wellz\FirebaseClient;
+use Wellz\KeyboardBuilder;
+use Wellz\LicenseManager;
+use Wellz\RateLimiter;
+use Wellz\RoleManager;
+use Wellz\StatsService;
+
 final class WellzTelegramBot
 {
     private array $config;
@@ -18,23 +27,59 @@ final class WellzTelegramBot
 
     private string $token;
 
+    private FirebaseClient $firebase;
+
+    private LicenseManager $licenseManager;
+
+    private RoleManager $roles;
+
+    private AuditLogger $audit;
+
+    private RateLimiter $rateLimiter;
+
+    private StatsService $stats;
+
+    private KeyboardBuilder $keyboards;
+
+    private AdminHandler $adminHandler;
+
     private const BTN_START = '▶️ بدء';
 
     private const BTN_CANCEL = '❌ إلغاء';
 
-    private const BOT_BUILD = '2026-06-08-apk-queue';
+    private const BTN_GEN = '🧾 توليد رمز';
+
+    private const BTN_PANEL = '🎛 لوحة الأدمن';
+
+    private const BOT_BUILD = '2026-07-08-admin-platform';
 
     public function __construct(array $config)
     {
         $this->config = $config;
         $this->token = (string) ($config['bot_token'] ?? '');
         $this->dataDir = __DIR__.'/data';
-        foreach (['sessions', 'orders', 'notify_map', 'admins', 'apk_queue', 'apk_locks', 'codes'] as $sub) {
+        foreach (['sessions', 'orders', 'notify_map', 'admins', 'apk_queue', 'apk_locks', 'codes', 'audit', 'reports', 'rate_limit'] as $sub) {
             $dir = $this->dataDir.'/'.$sub;
             if (! is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
         }
+        $this->audit = new AuditLogger($this->dataDir);
+        $this->firebase = new FirebaseClient($this->config, $this->dataDir);
+        $this->licenseManager = new LicenseManager($this->firebase, $this->config, $this->dataDir, $this->audit);
+        $this->roles = new RoleManager($this->config, $this->dataDir);
+        $this->rateLimiter = new RateLimiter($this->dataDir, (int) ($this->config['rate_limit_per_minute'] ?? 5));
+        $this->stats = new StatsService($this->firebase, $this->config);
+        $this->keyboards = new KeyboardBuilder($this->config);
+        $this->adminHandler = new AdminHandler(
+            $this->roles,
+            $this->licenseManager,
+            $this->stats,
+            $this->audit,
+            $this->keyboards,
+            $this->config,
+            $this->dataDir,
+        );
         $this->mergeSavedAdmins();
     }
 
@@ -115,6 +160,12 @@ final class WellzTelegramBot
             return;
         }
 
+        if (! $this->rateLimiter->allow($fromId, 'message')) {
+            $this->send($chatId, '⏳ أرسلت رسائل كثيرة. انتظر دقيقة ثم أعد المحاولة.');
+
+            return;
+        }
+
         $text = trim((string) ($message['text'] ?? ''));
 
         if ($text !== '' && $this->isStartLikeCommand($text)) {
@@ -128,7 +179,7 @@ final class WellzTelegramBot
                 $this->onVideoIdCommand($chatId, $message);
                 return;
             }
-            if ($this->onCommand($chatId, $fromId, $text)) {
+            if ($this->onCommand($chatId, $fromId, $text, $from)) {
                 return;
             }
         }
@@ -139,6 +190,23 @@ final class WellzTelegramBot
                 $this->sendVideoFileIdHelp($chatId, $message['video']);
                 return;
             }
+        }
+
+        if ($this->isAdmin($fromId) && $text === self::BTN_GEN) {
+            if (! $this->roles->can($fromId, 'generate')) {
+                $this->send($chatId, '⛔ ليس لديك صلاحية توليد الأكواد.', null, false);
+
+                return;
+            }
+            $this->sendGenPlanButtons($chatId);
+
+            return;
+        }
+
+        if ($this->isAdmin($fromId) && $text === self::BTN_PANEL) {
+            $this->applyAdminResponse($chatId, $this->adminHandler->handleCommand('/panel', '', $chatId, $fromId, $from));
+
+            return;
         }
 
         if ($text !== '' && $this->handleMenuButton($chatId, $from, $text)) {
@@ -269,14 +337,14 @@ final class WellzTelegramBot
             || $text === $this->appDownloadButton()) {
             return false;
         }
-        if ($text === self::BTN_CANCEL) {
+        if ($text === self::BTN_CANCEL || $text === self::BTN_GEN || $text === self::BTN_PANEL) {
             return false;
         }
 
         return true;
     }
 
-    private function onCommand(int $chatId, int $fromId, string $text): bool
+    private function onCommand(int $chatId, int $fromId, string $text, array $from = []): bool
     {
         $cmd = $this->commandName($text);
         $arg = $this->commandArg($text);
@@ -292,18 +360,35 @@ final class WellzTelegramBot
             return true;
         }
 
-        if ($this->isAdmin($fromId) && $cmd === '/orders') {
-            $this->sendPendingOrders($chatId);
-            return true;
-        }
-
         if ($this->isAdmin($fromId) && in_array($cmd, ['/gen', '/generate'], true)) {
-            $this->handleGenerateCodesCommand($chatId, $arg);
+            if (! $this->roles->can($fromId, 'generate')) {
+                $this->send($chatId, '⛔ ليس لديك صلاحية توليد الأكواد.', null, false);
+
+                return true;
+            }
+            $this->handleGenerateCodesCommand($chatId, $arg, $fromId, $from);
+
             return true;
         }
 
         if ($this->isAdmin($fromId) && in_array($cmd, ['/codes', '/stock'], true)) {
-            $this->sendCodesStock($chatId);
+            $this->applyAdminResponse($chatId, $this->adminHandler->handleCommand('/codes', '', $chatId, $fromId, $from));
+
+            return true;
+        }
+
+        $adminResp = $this->isAdmin($fromId)
+            ? $this->adminHandler->handleCommand($cmd, $arg, $chatId, $fromId, $from)
+            : null;
+        if ($adminResp !== null) {
+            $this->applyAdminResponse($chatId, $adminResp);
+
+            return true;
+        }
+
+        if ($this->isAdmin($fromId) && $cmd === '/orders') {
+            $this->sendPendingOrders($chatId);
+
             return true;
         }
 
@@ -322,7 +407,7 @@ final class WellzTelegramBot
 
         if ($cmd === '/help') {
             if ($this->isAdmin($fromId)) {
-                $this->send($chatId, "/orders — طلبات معلقة\n/gen 5 — توليد 5 أكواد\n/codes — عرض مخزون الأكواد\n/admin — تسجيل أدمن\n/videoid — معرّف فيديو طريقة التشغيل\nReply على «طلب جديد» → أرسل License Key أو /sendcode لتسليم كود تلقائي", null, false);
+                $this->send($chatId, $this->adminHandler->adminHelpText($fromId), null, false);
             } else {
                 $this->send($chatId, '/start — خطط الاشتراك\n/cancel — إلغاء');
             }
@@ -437,6 +522,51 @@ final class WellzTelegramBot
         );
 
         $this->notifyAdmins($order, $message);
+
+        if (! empty($this->config['auto_deliver_on_proof'])) {
+            $this->tryAutoDeliverOrder($orderId, $order);
+        }
+    }
+
+    /** تسليم تلقائي: من المخزون أو توليد جديد حسب خطة الطلب. */
+    private function tryAutoDeliverOrder(string $orderId, array $order): void
+    {
+        $customerChatId = (int) ($order['chat_id'] ?? 0);
+        if ($customerChatId === 0) {
+            return;
+        }
+        $code = $this->licenseManager->assignFromStock($orderId);
+        if ($code === null) {
+            $plan = (string) ($order['plan'] ?? 'month');
+            try {
+                $result = $this->licenseManager->generateForPlan($plan, 1, 0, 'auto-deliver');
+                $code = $result['ok'][0] ?? null;
+            } catch (\Throwable $e) {
+                $this->reportError($e);
+
+                return;
+            }
+        }
+        if ($code === null) {
+            return;
+        }
+        $customerMsg = "🎉 <b>مرحباً بك في WellzPro!</b>\n\n"
+            ."✅ تم تأكيد طلبك <code>{$orderId}</code>\n\n"
+            ."🔑 <b>مفتاح التفعيل:</b>\n<code>{$code}</code>\n\n"
+            ."📲 افتح Samurai → Vol↑ → الصق المفتاح → LOGIN";
+        $this->send($customerChatId, $customerMsg, null, true);
+        $orderPath = $this->dataDir.'/orders/'.$orderId.'.json';
+        if (is_file($orderPath)) {
+            $o = json_decode((string) file_get_contents($orderPath), true);
+            if (is_array($o)) {
+                $o['status'] = 'delivered';
+                $o['delivered_at'] = date('c');
+                $o['license_key'] = $code;
+                $o['auto_delivered'] = true;
+                file_put_contents($orderPath, json_encode($o, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            }
+        }
+        $this->audit->log('order.auto_deliver', 0, null, ['order_id' => $orderId, 'code' => $code]);
     }
 
     private function notifyAdmins(array $order, array $customerMessage): void
@@ -500,6 +630,13 @@ final class WellzTelegramBot
 
     private function onAdminReply(int $adminChatId, array $message): void
     {
+        $fromId = (int) ($message['from']['id'] ?? 0);
+        if (! $this->roles->can($fromId, 'deliver')) {
+            $this->send($adminChatId, '⛔ ليس لديك صلاحية تسليم الأكواد.', null, false);
+
+            return;
+        }
+
         $reply = $message['reply_to_message'] ?? null;
         if (! is_array($reply)) {
             return;
@@ -569,6 +706,9 @@ final class WellzTelegramBot
             );
             echo '['.date('H:i:s')."] أدمن جديد: {$userId}\n";
         }
+        if ($this->roles->roleOf($userId) === null) {
+            $this->roles->addRole($userId, RoleManager::ROLE_ADMIN);
+        }
     }
 
     private function mergeSavedAdmins(): void
@@ -589,7 +729,7 @@ final class WellzTelegramBot
 
     private function isAdmin(int $userId): bool
     {
-        return in_array((string) $userId, $this->config['admin_ids'] ?? [], true);
+        return $this->roles->isStaff($userId);
     }
 
     private function isCustomerInFlow(int $chatId): bool
@@ -617,147 +757,117 @@ final class WellzTelegramBot
         $this->send($adminChatId, implode("\n", $lines), null, false);
     }
 
-    private function handleGenerateCodesCommand(int $chatId, string $arg): void
+    private function handleGenerateCodesCommand(int $chatId, string $arg, int $fromId, array $from): void
     {
-        $count = (int) preg_replace('/\D+/u', '', $arg);
-        if ($count <= 0) {
-            $count = 1;
-        }
-        if ($count > 100) {
-            $count = 100;
-        }
+        $arg = trim($arg);
+        if ($arg === '') {
+            $this->sendGenPlanButtons($chatId);
 
-        $generated = [];
-        for ($i = 0; $i < $count; $i++) {
-            $generated[] = $this->storeGeneratedCode($this->generateLicenseCode());
-        }
-
-        $lines = [
-            '✅ <b>تم توليد الأكواد</b>',
-            'العدد: <b>'.count($generated).'</b>',
-            '',
-        ];
-
-        foreach ($generated as $code) {
-            $lines[] = '• <code>'.$code.'</code>';
-        }
-
-        $lines[] = '';
-        $lines[] = 'لتسليم كود تلقائياً للعميل: Reply على الطلب وأرسل <code>/sendcode</code>';
-
-        $this->send($chatId, implode("\n", $lines), null, false);
-    }
-
-    private function sendCodesStock(int $chatId): void
-    {
-        $available = $this->availableCodes();
-        if ($available === []) {
-            $this->send($chatId, "📦 <b>مخزون الأكواد</b>\nلا توجد أكواد متاحة حالياً.\nاستخدم <code>/gen 5</code> مثلاً.", null, false);
             return;
         }
+        $parts = preg_split('/\s+/u', $arg) ?: [];
+        $plan = strtolower((string) ($parts[0] ?? ''));
+        $count = isset($parts[1]) ? (int) preg_replace('/\D+/u', '', (string) $parts[1]) : 1;
+        if (ctype_digit($plan)) {
+            $count = (int) $plan;
+            $plan = 'month';
+        }
+        $this->generateCodesForPlan($chatId, $plan, $count, $fromId, $from);
+    }
 
+    private function sendGenPlanButtons(int $chatId): void
+    {
+        $this->send(
+            $chatId,
+            "🧾 <b>توليد رمز اشتراك</b>\n\nاختر المدة (يُكتب فوراً في Firebase):",
+            $this->keyboards->genPlanButtons(),
+            false
+        );
+    }
+
+    private function generateCodesForPlan(int $chatId, string $plan, int $count, int $fromId = 0, array $from = []): void
+    {
+        if (! $this->licenseManager->isReady()) {
+            $this->send($chatId, "❌ Firebase غير مضبوط.\nأضف <code>FIREBASE_SERVICE_ACCOUNT</code> في Render.", null, false);
+
+            return;
+        }
+        try {
+            $username = (string) ($from['username'] ?? '');
+            $result = $this->licenseManager->generateForPlan($plan, $count, $fromId, $username);
+        } catch (\InvalidArgumentException $e) {
+            $this->send($chatId, '❌ '.$e->getMessage(), $this->keyboards->backToPanel(), false);
+
+            return;
+        } catch (\Throwable $e) {
+            $this->reportError($e);
+            $this->send($chatId, '❌ تعذّر التوليد. تم إبلاغ السوبر أدمن.', null, false);
+
+            return;
+        }
+        if ($result['ok'] === []) {
+            $this->send($chatId, '❌ فشل توليد الأكواد في Firebase.', null, false);
+
+            return;
+        }
         $lines = [
-            '📦 <b>مخزون الأكواد المتاحة</b>',
-            'العدد: <b>'.count($available).'</b>',
+            '✅ <b>تم توليد أكواد فعّالة</b>',
+            '📦 الخطة: <b>'.$result['label'].'</b>',
+            '🔢 العدد: <b>'.count($result['ok']).'</b>'.($result['failed'] > 0 ? " (فشل {$result['failed']})" : ''),
             '',
         ];
-
-        foreach (array_slice($available, 0, 20) as $code) {
+        foreach ($result['ok'] as $code) {
             $lines[] = '• <code>'.$code.'</code>';
         }
-
-        if (count($available) > 20) {
-            $lines[] = '';
-            $lines[] = '... ويوجد المزيد: '.(count($available) - 20);
-        }
-
-        $this->send($chatId, implode("\n", $lines), null, false);
-    }
-
-    private function generateLicenseCode(): string
-    {
-        $prefix = preg_replace('/[^A-Z0-9]+/u', '', strtoupper((string) ($this->config['license_prefix'] ?? 'WELLZ')));
-        if ($prefix === '') {
-            $prefix = 'WELLZ';
-        }
-
-        do {
-            $code = sprintf(
-                '%s-%s-%s',
-                $prefix,
-                strtoupper(bin2hex(random_bytes(2))),
-                strtoupper(bin2hex(random_bytes(2)))
-            );
-        } while ($this->codeExists($code));
-
-        return $code;
-    }
-
-    private function codePath(string $code): string
-    {
-        return $this->dataDir.'/codes/'.preg_replace('/[^A-Z0-9\-]+/u', '_', strtoupper($code)).'.json';
-    }
-
-    private function codeExists(string $code): bool
-    {
-        return is_file($this->codePath($code));
-    }
-
-    private function storeGeneratedCode(string $code): string
-    {
-        $payload = [
-            'code' => $code,
-            'status' => 'available',
-            'created_at' => date('c'),
-        ];
-
-        file_put_contents(
-            $this->codePath($code),
-            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-        );
-
-        return $code;
-    }
-
-    private function availableCodes(): array
-    {
-        $codes = [];
-        foreach (glob($this->dataDir.'/codes/*.json') ?: [] as $file) {
-            $item = json_decode((string) file_get_contents($file), true);
-            if (! is_array($item) || ($item['status'] ?? '') !== 'available') {
-                continue;
-            }
-            $code = trim((string) ($item['code'] ?? ''));
-            if ($code !== '') {
-                $codes[] = $code;
-            }
-        }
-        sort($codes);
-
-        return $codes;
+        $lines[] = "\nReply على الطلب و<code>/sendcode</code> للتسليم التلقائي.";
+        $this->send($chatId, implode("\n", $lines), $this->keyboards->backToPanel(), false);
     }
 
     private function assignGeneratedCodeToOrder(string $orderId): ?string
     {
-        foreach (glob($this->dataDir.'/codes/*.json') ?: [] as $file) {
-            $item = json_decode((string) file_get_contents($file), true);
-            if (! is_array($item) || ($item['status'] ?? '') !== 'available') {
-                continue;
-            }
-            $code = trim((string) ($item['code'] ?? ''));
-            if ($code === '') {
-                continue;
-            }
+        return $this->licenseManager->assignFromStock($orderId);
+    }
 
-            $item['status'] = 'assigned';
-            $item['assigned_at'] = date('c');
-            $item['order_id'] = $orderId;
-            file_put_contents($file, json_encode($item, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-
-            return $code;
+    /** @param array{text: string, markup: ?array, keyboard?: bool, document?: array}|null $resp */
+    private function applyAdminResponse(int $chatId, ?array $resp): void
+    {
+        if ($resp === null) {
+            return;
         }
+        if (isset($resp['document']['path']) && is_file($resp['document']['path'])) {
+            $this->sendLocalDocument(
+                $chatId,
+                $resp['document']['path'],
+                (string) ($resp['document']['filename'] ?? 'report.csv'),
+                (string) ($resp['text'] ?? '')
+            );
+        } else {
+            $withKb = (bool) ($resp['keyboard'] ?? false);
+            $this->send($chatId, (string) $resp['text'], $resp['markup'] ?? null, $withKb);
+        }
+    }
 
-        return null;
+    private function sendLocalDocument(int $chatId, string $path, string $filename, string $caption): void
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'document' => new CURLFile($path, 'text/csv', $filename),
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+        ];
+        $this->apiRequest('sendDocument', $payload, true, 120);
+    }
+
+    private function reportError(\Throwable $e): void
+    {
+        $this->audit->log('error', 0, null, ['message' => $e->getMessage(), 'class' => $e::class]);
+        $msg = '⚠️ <b>خطأ في البوت</b>\n'.htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
+        foreach ($this->config['admin_ids'] ?? [] as $adminId) {
+            $id = (int) $adminId;
+            if ($id > 0 && $this->roles->can($id, 'manage_admins')) {
+                $this->send($id, $msg, null, false);
+            }
+        }
     }
 
     private function saveNotifyMap(int $adminChat, int $msgId, int $customerChat, string $orderId): void
@@ -784,6 +894,37 @@ final class WellzTelegramBot
         $data = (string) ($cb['data'] ?? '');
         $message = $cb['message'] ?? null;
         $chatId = is_array($message) ? (int) ($message['chat']['id'] ?? 0) : 0;
+        $fromId = (int) ($cb['from']['id'] ?? 0);
+
+        if (str_starts_with($data, 'adm:')) {
+            $from = $cb['from'] ?? [];
+            if (! $this->isAdmin($fromId)) {
+                $this->apiPost('answerCallbackQuery', ['callback_query_id' => $id, 'text' => 'للأدمن فقط']);
+
+                return;
+            }
+            $this->apiPost('answerCallbackQuery', ['callback_query_id' => $id]);
+            if ($chatId > 0) {
+                $this->applyAdminResponse($chatId, $this->adminHandler->handleCallback($data, $chatId, $fromId));
+            }
+
+            return;
+        }
+
+        if (str_starts_with($data, 'genfb:')) {
+            if (! $this->roles->can($fromId, 'generate')) {
+                $this->apiPost('answerCallbackQuery', ['callback_query_id' => $id, 'text' => 'ليس لديك صلاحية']);
+
+                return;
+            }
+            $plan = substr($data, 6);
+            $this->apiPost('answerCallbackQuery', ['callback_query_id' => $id, 'text' => 'جارٍ التوليد…']);
+            if ($chatId > 0) {
+                $this->generateCodesForPlan($chatId, $plan, 1, $fromId, $cb['from'] ?? []);
+            }
+
+            return;
+        }
 
         if (str_starts_with($data, 'apk:')) {
             $variantKey = substr($data, 4);
@@ -832,17 +973,37 @@ final class WellzTelegramBot
 
     private function sendPlansMenu(int $chatId): void
     {
-        $this->send($chatId, $this->welcomeText(), $this->persistentKeyboard());
+        $this->send($chatId, $this->welcomeText(), $this->persistentKeyboard($chatId));
     }
 
     private function setupBotMenu(): void
     {
+        $customer = [
+            ['command' => 'start', 'description' => 'خطط الاشتراك'],
+            ['command' => 'cancel', 'description' => 'إلغاء'],
+        ];
+        $admin = [
+            ['command' => 'panel', 'description' => 'لوحة تحكم الأدمن'],
+            ['command' => 'gen', 'description' => 'توليد رمز اشتراك'],
+            ['command' => 'stats', 'description' => 'إحصائيات التراخيص'],
+            ['command' => 'report', 'description' => 'تقرير CSV'],
+            ['command' => 'orders', 'description' => 'طلبات معلقة'],
+            ['command' => 'help', 'description' => 'أوامر الأدمن'],
+        ];
         $this->apiPost('setMyCommands', [
-            'commands' => json_encode([
-                ['command' => 'start', 'description' => 'خطط الاشتراك'],
-                ['command' => 'cancel', 'description' => 'إلغاء'],
-            ], JSON_UNESCAPED_UNICODE),
+            'commands' => json_encode($customer, JSON_UNESCAPED_UNICODE),
+            'scope' => json_encode(['type' => 'default']),
         ]);
+        foreach ($this->config['admin_ids'] ?? [] as $adminId) {
+            $id = (int) $adminId;
+            if ($id <= 0) {
+                continue;
+            }
+            $this->apiPost('setMyCommands', [
+                'commands' => json_encode($admin, JSON_UNESCAPED_UNICODE),
+                'scope' => json_encode(['type' => 'chat', 'chat_id' => $id]),
+            ]);
+        }
     }
 
     private function welcomeText(): string
@@ -870,7 +1031,7 @@ final class WellzTelegramBot
         };
     }
 
-    private function persistentKeyboard(): array
+    private function persistentKeyboard(int $userId = 0): array
     {
         $plans = $this->config['plans'] ?? [];
         $rows = [[['text' => self::BTN_START]]];
@@ -879,6 +1040,14 @@ final class WellzTelegramBot
             ['text' => $this->planButton('two_months', (int) ($plans['two_months']['price'] ?? 50))],
             ['text' => $this->planButton('quarter', (int) ($plans['quarter']['price'] ?? 75))],
         ];
+        if ($userId > 0 && $this->isAdmin($userId)) {
+            if ($this->roles->can($userId, 'generate')) {
+                $rows[] = [['text' => self::BTN_GEN]];
+            }
+            if ($this->roles->can($userId, 'panel')) {
+                $rows[] = [['text' => self::BTN_PANEL]];
+            }
+        }
         $rows[] = [['text' => $this->areaCodesButton()]];
         $rows[] = [
             ['text' => $this->howToRunButton()],
@@ -1570,7 +1739,7 @@ final class WellzTelegramBot
         if ($replyMarkup !== null) {
             $payload['reply_markup'] = json_encode($replyMarkup, JSON_UNESCAPED_UNICODE);
         } elseif ($withKeyboard) {
-            $payload['reply_markup'] = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
+            $payload['reply_markup'] = json_encode($this->persistentKeyboard($chatId), JSON_UNESCAPED_UNICODE);
         }
         $json = $this->apiRequest('sendMessage', $payload, true);
         if (is_array($json)) {
@@ -1676,6 +1845,6 @@ final class WellzTelegramBot
     }
 }
 
-if (PHP_SAPI === 'cli') {
+if (PHP_SAPI === 'cli' && getenv('WELLZ_BOT_NORUN') === false) {
     (new WellzTelegramBot($config))->run();
 }
