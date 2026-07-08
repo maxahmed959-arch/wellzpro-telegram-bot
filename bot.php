@@ -1430,19 +1430,44 @@ final class WellzTelegramBot
         }
 
         $script = __DIR__.'/scripts/send-apk.php';
-        if (! is_file($script)) {
-            $this->processApkQueue($chatId);
-
+        if (is_file($script) && $this->spawnApkWorker($chatId, $script)) {
             return;
         }
 
+        // تعذّر تشغيل عامل خلفي (exec معطّلة أو السكربت مفقود) — عالج مباشرة.
+        // بعد أول إرسال يُخزَّن file_id فتصبح المرات التالية فورية.
+        $this->processApkQueue($chatId);
+    }
+
+    /** يحاول تشغيل عامل الإرسال في الخلفية. يرجع true عند النجاح. */
+    private function spawnApkWorker(int $chatId, string $script): bool
+    {
+        $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
         $php = PHP_BINARY;
-        $cmd = escapeshellarg($php).' '.escapeshellarg($script).' '.$chatId;
-        if (PHP_OS_FAMILY === 'Windows') {
-            pclose(popen('start /B "" '.$cmd, 'r'));
-        } else {
-            exec($cmd.' > /dev/null 2>&1 &');
+        if ($php === '' || ! is_executable($php)) {
+            $php = 'php';
         }
+        $cmd = escapeshellarg($php).' '.escapeshellarg($script).' '.$chatId;
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            if (! function_exists('popen') || in_array('popen', $disabled, true)) {
+                return false;
+            }
+            $handle = popen('start /B "" '.$cmd, 'r');
+            if ($handle === false) {
+                return false;
+            }
+            pclose($handle);
+
+            return true;
+        }
+
+        if (! function_exists('exec') || in_array('exec', $disabled, true)) {
+            return false;
+        }
+        exec($cmd.' > /dev/null 2>&1 &', $out, $code);
+
+        return $code === 0;
     }
 
     private function sendApkVariant(int $chatId, string $variantKey): void
