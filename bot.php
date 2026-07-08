@@ -1040,15 +1040,17 @@ final class WellzTelegramBot
             ['text' => $this->planButton('two_months', (int) ($plans['two_months']['price'] ?? 50))],
             ['text' => $this->planButton('quarter', (int) ($plans['quarter']['price'] ?? 75))],
         ];
+        $actionRow = [];
         if ($userId > 0 && $this->isAdmin($userId)) {
             if ($this->roles->can($userId, 'generate')) {
-                $rows[] = [['text' => self::BTN_GEN]];
+                $actionRow[] = ['text' => self::BTN_GEN];
             }
             if ($this->roles->can($userId, 'panel')) {
-                $rows[] = [['text' => self::BTN_PANEL]];
+                $actionRow[] = ['text' => self::BTN_PANEL];
             }
         }
-        $rows[] = [['text' => $this->areaCodesButton()]];
+        $actionRow[] = ['text' => $this->areaCodesButton()];
+        $rows[] = $actionRow;
         $rows[] = [
             ['text' => $this->howToRunButton()],
             ['text' => $this->appDownloadButton()],
