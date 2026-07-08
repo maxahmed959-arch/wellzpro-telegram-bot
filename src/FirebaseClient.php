@@ -204,6 +204,36 @@ final class FirebaseClient
         return $rows;
     }
 
+    /** قراءة قيمة خام من مسار عام في القاعدة (للتخزين المؤقت مثل file_id). */
+    public function getValue(string $path): mixed
+    {
+        $token = $this->accessToken();
+        if ($token === null) {
+            return null;
+        }
+        $base = rtrim((string) ($this->config['firebase_database_url'] ?? ''), '/');
+        $url = $base.'/'.trim($path, '/').'.json?access_token='.urlencode($token);
+        $body = $this->requestBody('GET', $url);
+        if ($body === null) {
+            return null;
+        }
+
+        return json_decode($body, true);
+    }
+
+    /** كتابة قيمة خام في مسار عام في القاعدة. */
+    public function putValue(string $path, mixed $value): bool
+    {
+        $token = $this->accessToken();
+        if ($token === null) {
+            return false;
+        }
+        $base = rtrim((string) ($this->config['firebase_database_url'] ?? ''), '/');
+        $url = $base.'/'.trim($path, '/').'.json?access_token='.urlencode($token);
+
+        return $this->request('PUT', $url, json_encode($value, JSON_UNESCAPED_UNICODE));
+    }
+
     private function request(string $method, string $url, ?string $body = null): bool
     {
         $ch = curl_init($url);
