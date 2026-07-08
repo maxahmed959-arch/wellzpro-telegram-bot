@@ -13,10 +13,44 @@ return [
     'bank_holder' => getenv('TELEGRAM_BANK_HOLDER') ?: '',
     'license_prefix' => getenv('LICENSE_PREFIX') ?: 'WELLZ',
 
+    /** سوبر أدمن — كل الصلاحيات + إدارة المسؤولين */
+    'super_admin_ids' => getenv('SUPER_ADMIN_IDS') ?: '',
+    'super_admin_pin' => getenv('SUPER_ADMIN_PIN') ?: getenv('TELEGRAM_ADMIN_PIN') ?: 'WellzPro2026',
+
+    /** تحديد الطلبات: عدد الرسائل لكل مستخدم في الدقيقة */
+    'rate_limit_per_minute' => (int) (getenv('RATE_LIMIT_PER_MINUTE') ?: 5),
+
+    /** تسليم تلقائي للكود بعد استلام إشعار التحويل (إن وُجد مخزون) */
+    'auto_deliver_on_proof' => filter_var(getenv('AUTO_DELIVER_ON_PROOF') ?: 'false', FILTER_VALIDATE_BOOLEAN),
+
+    /** تذكير انتهاء الاشتراك قبل N أيام (cron) */
+    'expiry_reminder_days' => (int) (getenv('EXPIRY_REMINDER_DAYS') ?: 3),
+
+    /**
+     * Firebase Realtime DB — لكتابة أكواد التفعيل مباشرة (نفس مكان قراءة التطبيق).
+     * FIREBASE_SERVICE_ACCOUNT = محتوى service-account.json كاملاً (موصى على Render)
+     * أو FIREBASE_CREDENTIALS = مسار ملف service-account.json
+     */
+    'firebase_database_url' => getenv('FIREBASE_DATABASE_URL') ?: 'https://samuraibot-acc00-7ea81-default-rtdb.firebaseio.com',
+    'firebase_licenses_path' => getenv('FIREBASE_LICENSES_PATH') ?: 'licenses',
+    'firebase_service_account_json' => getenv('FIREBASE_SERVICE_ACCOUNT') ?: '',
+    'firebase_service_account_file' => getenv('FIREBASE_CREDENTIALS') ?: (__DIR__.'/firebase/service-account.json'),
+
     'plans' => [
         'month' => ['label' => 'شهر (30 يوم)', 'price' => 25],
         'two_months' => ['label' => 'شهرين (60 يوم)', 'price' => 50],
         'quarter' => ['label' => '3 أشهر (90 يوم)', 'price' => 75],
+    ],
+
+    /** خطط توليد الأكواد للأدمن (المدة) — تطابق مخطط اللوحة */
+    'license_plans' => [
+        'hour' => ['label' => '⏱ ساعة', 'hours' => 1],
+        'day' => ['label' => '📅 يوم', 'days' => 1],
+        'week' => ['label' => '📅 أسبوع', 'days' => 7],
+        'month' => ['label' => '📦 شهر', 'days' => 30],
+        'two_months' => ['label' => '📦 شهرين', 'days' => 60],
+        'quarter' => ['label' => '📦 3 أشهر', 'days' => 90],
+        'lifetime' => ['label' => '♾ مدى الحياة', 'lifetime' => true],
     ],
 
     /** أكواد المناطق — زر واحد يعرض القائمة كاملة */
