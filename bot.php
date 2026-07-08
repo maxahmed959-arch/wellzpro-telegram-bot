@@ -933,6 +933,7 @@ final class WellzTelegramBot
                 'text' => 'جارٍ إرسال الملف…',
             ]);
             if ($chatId > 0) {
+                $this->notifyApkPreparing($chatId, $variantKey);
                 $this->dispatchApkSend($chatId, $variantKey);
             }
 
@@ -1391,6 +1392,29 @@ final class WellzTelegramBot
         return $busy;
     }
 
+    /** رسالة فورية للمستخدم — تظهر لحظة الضغط (فقط إن لم يكن الملف مخزّناً مسبقاً). */
+    private function notifyApkPreparing(int $chatId, string $variantKey): void
+    {
+        $variant = $this->apkVariantByKey($variantKey);
+        if ($variant === null) {
+            return;
+        }
+        $filename = (string) ($variant['filename'] ?? '');
+        if ($filename !== '' && $this->getApkFileId($filename) !== '') {
+            // مخزّن مسبقاً — سيُرسل فوراً، لا حاجة لرسالة انتظار.
+            return;
+        }
+        $label = (string) ($variant['label'] ?? $filename);
+        $this->send(
+            $chatId,
+            "⏳ <b>جارٍ تجهيز {$label}</b>\n"
+            ."يُرسل الملف داخل تيليجرام خلال لحظات…\n"
+            .'المرة الأولى قد تأخذ وقتاً، والمرات التالية تكون فورية.',
+            null,
+            false
+        );
+    }
+
     private function dispatchApkSend(int $chatId, string $variantKey): void
     {
         $this->enqueueApkSend($chatId, $variantKey);
@@ -1473,6 +1497,24 @@ final class WellzTelegramBot
     /** يرسل APK كملف داخل Telegram (بدون فتح GitHub). */
     private function sendApkDocument(int $chatId, string $url, string $filename, string $caption, string $markup): bool
     {
+        // 1) الأسرع: إرسال بـ file_id محفوظ سابقاً — فوري بلا أي تنزيل.
+        $cachedId = $this->getApkFileId($filename);
+        if ($cachedId !== '') {
+            $json = $this->apiRequest('sendDocument', [
+                'chat_id' => $chatId,
+                'document' => $cachedId,
+                'caption' => $caption,
+                'parse_mode' => 'HTML',
+                'reply_markup' => $markup,
+            ], true, 30);
+            if (is_array($json)) {
+                return true;
+            }
+            // المعرّف لم يعد صالحاً — احذفه وأكمل بالطرق الأخرى.
+            $this->forgetApkFileId($filename);
+        }
+
+        // 2) إرسال بالرابط مباشرة (يعمل حتى 20MB فقط).
         $payload = [
             'chat_id' => $chatId,
             'document' => $url,
@@ -1483,6 +1525,8 @@ final class WellzTelegramBot
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $json = $this->apiRequest('sendDocument', $payload, true, 120);
             if (is_array($json)) {
+                $this->rememberApkFileId($filename, $json);
+
                 return true;
             }
             if ($attempt === 0) {
@@ -1490,6 +1534,7 @@ final class WellzTelegramBot
             }
         }
 
+        // 3) احتياطي: تنزيل الملف ثم رفعه (للملفات >20MB) — بطيء، لكن يُنفَّذ مرة واحدة ثم يُخزَّن file_id.
         $local = $this->fetchUrlToTempFile($url);
         if ($local === null) {
             return false;
@@ -1504,8 +1549,93 @@ final class WellzTelegramBot
         ];
         $json = $this->apiRequest('sendDocument', $payload, true, 300);
         @unlink($local);
+        if (is_array($json)) {
+            $this->rememberApkFileId($filename, $json);
 
-        return is_array($json);
+            return true;
+        }
+
+        return false;
+    }
+
+    /** @var array<string, string>|null */
+    private ?array $apkFileIdCache = null;
+
+    private function apkFileIdCachePath(): string
+    {
+        return $this->dataDir.'/apk_fileids.json';
+    }
+
+    /** @return array<string, string> */
+    private function loadApkFileIds(): array
+    {
+        if ($this->apkFileIdCache !== null) {
+            return $this->apkFileIdCache;
+        }
+        $data = [];
+        $path = $this->apkFileIdCachePath();
+        if (is_file($path)) {
+            $decoded = json_decode((string) file_get_contents($path), true);
+            if (is_array($decoded)) {
+                $data = $decoded;
+            }
+        }
+        $this->apkFileIdCache = $data;
+
+        return $data;
+    }
+
+    private function getApkFileId(string $filename): string
+    {
+        $local = $this->loadApkFileIds();
+        if (isset($local[$filename]) && $local[$filename] !== '') {
+            return (string) $local[$filename];
+        }
+        // احتياطي دائم عبر Firebase (يبقى بعد إعادة النشر على Render).
+        if ($this->firebase->isConfigured()) {
+            $remote = $this->firebase->getValue('bot_cache/apk_fileids/'.$this->apkCacheKey($filename));
+            if (is_string($remote) && $remote !== '') {
+                $local[$filename] = $remote;
+                $this->apkFileIdCache = $local;
+                @file_put_contents($this->apkFileIdCachePath(), json_encode($local, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
+                return $remote;
+            }
+        }
+
+        return '';
+    }
+
+    /** @param array<string, mixed> $apiResult */
+    private function rememberApkFileId(string $filename, array $apiResult): void
+    {
+        $fileId = (string) ($apiResult['result']['document']['file_id'] ?? '');
+        if ($fileId === '') {
+            return;
+        }
+        $local = $this->loadApkFileIds();
+        $local[$filename] = $fileId;
+        $this->apkFileIdCache = $local;
+        @file_put_contents($this->apkFileIdCachePath(), json_encode($local, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        if ($this->firebase->isConfigured()) {
+            $this->firebase->putValue('bot_cache/apk_fileids/'.$this->apkCacheKey($filename), $fileId);
+        }
+    }
+
+    private function forgetApkFileId(string $filename): void
+    {
+        $local = $this->loadApkFileIds();
+        unset($local[$filename]);
+        $this->apkFileIdCache = $local;
+        @file_put_contents($this->apkFileIdCachePath(), json_encode($local, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        if ($this->firebase->isConfigured()) {
+            $this->firebase->putValue('bot_cache/apk_fileids/'.$this->apkCacheKey($filename), null);
+        }
+    }
+
+    private function apkCacheKey(string $filename): string
+    {
+        return preg_replace('/[.#$\[\]\/]+/', '_', $filename) ?: 'file';
     }
 
     private function remoteFileExists(string $url): bool
