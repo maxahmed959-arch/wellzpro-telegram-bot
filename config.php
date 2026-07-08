@@ -103,15 +103,15 @@ return [
 
     /** زر إرسال APK — رابط GitHub Releases (يُستخرج منه مجلد الإصدار لباقي النسخ) */
     'app_download_button' => getenv('APP_DOWNLOAD_BUTTON') ?: '📲 تحميل التطبيق',
-    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: 'https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/samu.8.apk',
-    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.8.apk',
+    'app_download_url' => getenv('APP_DOWNLOAD_URL') ?: 'https://github.com/maxahmed959-arch/wellzpro-telegram-bot/releases/download/v1.0.0/Orginal.apk',
+    'app_download_filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'Orginal.apk',
 
-    /** نسخ APK — تظهر كأزرار عند الضغط على «تحميل التطبيق» */
+    /** نسخ APK — تظهر كأزرار عند الضغط على «تحميل التطبيق» (تطابق أسماء ملفات الإصدار) */
     'app_apk_variants' => [
         [
             'key' => 'full',
-            'label' => '📱 النسخة الكاملة',
-            'filename' => getenv('APP_DOWNLOAD_FILENAME') ?: 'samu.8.apk',
+            'label' => '📱 النسخة الكاملة (Orginal)',
+            'filename' => 'Orginal.apk',
             'hint' => 'موصى بها — تعمل على معظم الأجهزة',
         ],
         [
