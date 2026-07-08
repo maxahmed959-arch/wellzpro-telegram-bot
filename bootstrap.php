@@ -24,4 +24,6 @@ if (is_file($envFile)) {
 
 $config = require __DIR__.'/config.php';
 
+require __DIR__.'/src/autoload.php';
+
 date_default_timezone_set('Asia/Riyadh');
