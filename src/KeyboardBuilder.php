@@ -79,8 +79,8 @@ final class KeyboardBuilder
             $icon = $status === 'disabled' ? '⛔' : '🟡';
             $kb[] = [
                 ['text' => $icon.' '.$code, 'callback_data' => 'adm:noop'],
-                ['text' => '🗑', 'callback_data' => 'adm:del:'.$code],
                 ['text' => '🚫', 'callback_data' => 'adm:off:'.$code],
+                ['text' => '🗑', 'callback_data' => 'adm:del:'.$code],
             ];
         }
         $kb[] = [
