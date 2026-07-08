@@ -1457,7 +1457,7 @@ final class WellzTelegramBot
         }
         $caption .= 'ثبّت APK ثم اتبع <b>📖 طريقة التشغيل</b> للتفعيل.';
 
-        $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
+        $markup = json_encode($this->persistentKeyboard($chatId), JSON_UNESCAPED_UNICODE);
         if ($this->sendApkDocument($chatId, $url, $filename, $caption, $markup)) {
             return;
         }
@@ -1684,7 +1684,7 @@ final class WellzTelegramBot
 
     private function sendHowToRunVideo(int $chatId, string $fullGuideText): bool
     {
-        $markup = json_encode($this->persistentKeyboard(), JSON_UNESCAPED_UNICODE);
+        $markup = json_encode($this->persistentKeyboard($chatId), JSON_UNESCAPED_UNICODE);
         // caption قصير دائماً — النص الكامل طويل وقد يفشل sendVideo (حد 1024 حرف)
         $caption = $this->howToRunVideoCaption();
 
