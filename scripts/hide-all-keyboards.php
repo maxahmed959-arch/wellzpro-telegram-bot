@@ -59,7 +59,7 @@ if ($ids === []) {
     exit(0);
 }
 
-$text = "⏸ البوت متوقف مؤقتاً.";
+$text = "⏸ البوت متوقف\n\nالإدارة غير مسؤولة عن أي مبلغ يتم تحويله.";
 $markup = json_encode(['remove_keyboard' => true, 'selective' => false], JSON_UNESCAPED_UNICODE);
 $ok = 0;
 $fail = 0;
