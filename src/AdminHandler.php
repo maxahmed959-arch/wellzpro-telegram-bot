@@ -242,7 +242,7 @@ final class AdminHandler
         $rows = $this->licenses->inactiveCodes();
         if ($rows === []) {
             return [
-                'text' => "🗑 <b>حذف / تعطيل الأكواد</b>\n\n✅ لا توجد أكواد غير مُفعّلة حالياً.",
+                'text' => "🗑 <b>حذف الأكواد غير المُفعّلة</b>\n\n✅ لا توجد أكواد غير مُفعّلة حالياً.",
                 'markup' => $this->keyboards->backToPanel(),
                 'keyboard' => false,
             ];
@@ -250,8 +250,8 @@ final class AdminHandler
 
         return [
             'text' => "🗑 <b>الأكواد غير المُفعّلة</b> (".count($rows).")\n"
-                ."اختر إجراءً لكل كود:\n"
-                ."🗑 حذف = إزالة نهائية · 🚫 تعطيل = إيقاف",
+                ."اضغط 🗑 بجانب الكود للحذف النهائي.\n"
+                ."لتعطيل كود مُفعّل: <code>/off WELLZ-XXXX-XXXX</code>",
             'markup' => $this->keyboards->codeActionList($rows),
             'keyboard' => false,
         ];

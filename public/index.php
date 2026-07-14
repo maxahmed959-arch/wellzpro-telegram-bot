@@ -12,7 +12,7 @@ if ($method === 'GET') {
     $ver = is_file(__DIR__.'/../VERSION.txt')
         ? trim((string) file_get_contents(__DIR__.'/../VERSION.txt'))
         : 'unknown';
-    echo "WellzPro Telegram Bot — Samurai MiniBot — cloud OK — {$ver}\n";
+    echo "WellzPro Telegram Bot — cloud OK — {$ver}\n";
     exit;
 }
 
