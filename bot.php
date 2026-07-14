@@ -142,6 +142,12 @@ final class WellzTelegramBot
 
     private function handleUpdate(array $update): void
     {
+        if (! $this->isBotEnabled()) {
+            $this->handlePausedUpdate($update);
+
+            return;
+        }
+
         if (isset($update['callback_query'])) {
             $this->onCallback($update['callback_query']);
             return;
@@ -149,6 +155,59 @@ final class WellzTelegramBot
         if (isset($update['message'])) {
             $this->onMessage($update['message']);
         }
+    }
+
+    private function isBotEnabled(): bool
+    {
+        return (bool) ($this->config['bot_enabled'] ?? true);
+    }
+
+    /** إيقاف مؤقت: رسالة صيانة + إزالة أزرار لوحة المفاتيح والـ Inline */
+    private function handlePausedUpdate(array $update): void
+    {
+        $paused = "⏸ <b>البوت متوقف مؤقتاً</b>\n\nالصيانة جارية — جرّب لاحقاً.";
+
+        if (isset($update['callback_query'])) {
+            $cb = $update['callback_query'];
+            $id = (string) ($cb['id'] ?? '');
+            $message = $cb['message'] ?? null;
+            $this->apiPost('answerCallbackQuery', [
+                'callback_query_id' => $id,
+                'text' => 'البوت متوقف مؤقتاً',
+            ]);
+            if (is_array($message)) {
+                $chatId = (int) ($message['chat']['id'] ?? 0);
+                $messageId = (int) ($message['message_id'] ?? 0);
+                if ($chatId > 0 && $messageId > 0) {
+                    $this->apiPost('editMessageText', [
+                        'chat_id' => $chatId,
+                        'message_id' => $messageId,
+                        'text' => $paused,
+                        'parse_mode' => 'HTML',
+                        'reply_markup' => json_encode(['inline_keyboard' => []], JSON_UNESCAPED_UNICODE),
+                    ]);
+                }
+            }
+
+            return;
+        }
+
+        if (! isset($update['message'])) {
+            return;
+        }
+
+        $chatId = (int) ($update['message']['chat']['id'] ?? 0);
+        if ($chatId === 0) {
+            return;
+        }
+
+        $this->clearSession($chatId);
+        $this->send($chatId, $paused, ['remove_keyboard' => true], false);
+    }
+
+    private function emptyInlineKeyboard(): array
+    {
+        return ['inline_keyboard' => []];
     }
 
     private function onMessage(array $message): void
@@ -979,6 +1038,18 @@ final class WellzTelegramBot
 
     private function setupBotMenu(): void
     {
+        if (! $this->isBotEnabled()) {
+            $this->apiPost('setMyCommands', [
+                'commands' => json_encode([], JSON_UNESCAPED_UNICODE),
+                'scope' => json_encode(['type' => 'default']),
+            ]);
+            $this->apiPost('deleteMyCommands', [
+                'scope' => json_encode(['type' => 'default']),
+            ]);
+
+            return;
+        }
+
         $customer = [
             ['command' => 'start', 'description' => 'خطط الاشتراك'],
             ['command' => 'cancel', 'description' => 'إلغاء'],
@@ -1034,6 +1105,10 @@ final class WellzTelegramBot
 
     private function persistentKeyboard(int $userId = 0): array
     {
+        if (! $this->isBotEnabled()) {
+            return ['remove_keyboard' => true];
+        }
+
         $plans = $this->config['plans'] ?? [];
         $rows = [[['text' => self::BTN_START]]];
         $rows[] = [

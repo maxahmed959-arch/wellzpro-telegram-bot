@@ -11,6 +11,8 @@ services:
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: TELEGRAM_BOT_ENABLED
+        value: "false"
       - key: TELEGRAM_ADMIN_PIN
         value: WellzPro2026
       - key: TELEGRAM_BANK_ACCOUNT

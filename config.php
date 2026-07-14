@@ -1,7 +1,7 @@
 <?php
 
 return [
-    /** إيقاف مؤقت: false = متوقف ويُخفي كل أزرار الهاتف. الافتراضي false حتى يُضبط TELEGRAM_BOT_ENABLED=true صراحة */
+    /** إيقاف مؤقت: الافتراضي false حتى يُضبط TELEGRAM_BOT_ENABLED=true صراحة */
     'bot_enabled' => filter_var(getenv('TELEGRAM_BOT_ENABLED') !== false ? getenv('TELEGRAM_BOT_ENABLED') : 'false', FILTER_VALIDATE_BOOLEAN),
 
     'bot_token' => getenv('TELEGRAM_BOT_TOKEN') ?: '',
