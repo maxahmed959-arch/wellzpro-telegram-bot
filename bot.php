@@ -165,7 +165,7 @@ final class WellzTelegramBot
     /** إيقاف مؤقت: رسالة صيانة + إزالة أزرار لوحة المفاتيح والـ Inline */
     private function handlePausedUpdate(array $update): void
     {
-        $paused = "⏸ <b>البوت متوقف مؤقتاً</b>\n\nالصيانة جارية — جرّب لاحقاً.";
+        $paused = "⏸ <b>البوت متوقف</b>\n\nالإدارة غير مسؤولة عن أي مبلغ يتم تحويله.";
 
         if (isset($update['callback_query'])) {
             $cb = $update['callback_query'];
@@ -173,7 +173,7 @@ final class WellzTelegramBot
             $message = $cb['message'] ?? null;
             $this->apiPost('answerCallbackQuery', [
                 'callback_query_id' => $id,
-                'text' => 'البوت متوقف مؤقتاً',
+                'text' => 'البوت متوقف',
             ]);
             if (is_array($message)) {
                 $chatId = (int) ($message['chat']['id'] ?? 0);
