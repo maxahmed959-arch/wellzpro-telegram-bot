@@ -12,7 +12,9 @@ if ($method === 'GET') {
     $ver = is_file(__DIR__.'/../VERSION.txt')
         ? trim((string) file_get_contents(__DIR__.'/../VERSION.txt'))
         : 'unknown';
+    $enabled = ! empty($config['bot_enabled']) ? 'true' : 'false';
     echo "WellzPro Telegram Bot — cloud OK — {$ver}\n";
+    echo "TELEGRAM_BOT_ENABLED={$enabled}\n";
     exit;
 }
 
