@@ -14,6 +14,10 @@ final class KeyboardBuilder
     /** @return array<string, mixed> */
     public function adminMainMenu(): array
     {
+        if (! ($this->config['bot_enabled'] ?? true)) {
+            return ['inline_keyboard' => []];
+        }
+
         return [
             'inline_keyboard' => [
                 [
@@ -37,6 +41,10 @@ final class KeyboardBuilder
     /** @return array<string, mixed> */
     public function genPlanButtons(): array
     {
+        if (! ($this->config['bot_enabled'] ?? true)) {
+            return ['inline_keyboard' => []];
+        }
+
         $plans = $this->config['license_plans'] ?? [];
         $rows = [];
         $row = [];
@@ -58,6 +66,10 @@ final class KeyboardBuilder
     /** @return array<string, mixed> */
     public function backToPanel(): array
     {
+        if (! ($this->config['bot_enabled'] ?? true)) {
+            return ['inline_keyboard' => []];
+        }
+
         return ['inline_keyboard' => [[['text' => '↩️ لوحة الأدمن', 'callback_data' => 'adm:panel']]]];
     }
 
@@ -69,6 +81,10 @@ final class KeyboardBuilder
      */
     public function codeActionList(array $rows): array
     {
+        if (! ($this->config['bot_enabled'] ?? true)) {
+            return ['inline_keyboard' => []];
+        }
+
         $kb = [];
         foreach ($rows as $row) {
             $code = (string) ($row['key'] ?? '');
