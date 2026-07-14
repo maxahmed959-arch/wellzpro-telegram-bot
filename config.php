@@ -1,6 +1,9 @@
 <?php
 
 return [
+    /** إيقاف مؤقت: false = متوقف ويُخفي كل أزرار الهاتف */
+    'bot_enabled' => filter_var(getenv('TELEGRAM_BOT_ENABLED') !== false ? getenv('TELEGRAM_BOT_ENABLED') : 'true', FILTER_VALIDATE_BOOLEAN),
+
     'bot_token' => getenv('TELEGRAM_BOT_TOKEN') ?: '',
     'admin_ids' => array_values(array_filter(array_map(
         'trim',
